@@ -59,7 +59,7 @@ export function HooksSection() {
                       <div className="h-full w-full bg-gradient-to-r from-accent/50 to-accent/15" />
                       {!reduce && (
                         <motion.div
-                          className="absolute top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-glow shadow-[0_0_8px_rgba(57,255,99,0.8)]"
+                          className="absolute top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-glow shadow-[0_0_8px_rgba(229,255,102,0.8)]"
                           animate={{ left: ["-10%", "110%"], opacity: [0, 1, 0] }}
                           transition={{
                             duration: 1.6,

@@ -68,7 +68,7 @@ export function Navbar() {
         <div className="flex items-center gap-3">
           <a
             href="#buy"
-            className="hidden rounded-full bg-accent px-5 py-2 text-sm font-semibold text-black transition-shadow duration-300 hover:shadow-[0_0_24px_rgba(0,200,5,0.45)] md:inline-block"
+            className="hidden rounded-full bg-accent px-5 py-2 text-sm font-semibold text-black transition-shadow duration-300 hover:shadow-[0_0_24px_rgba(204,255,0,0.45)] md:inline-block"
           >
             Buy Token
           </a>

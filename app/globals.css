@@ -5,8 +5,8 @@
   --color-surface: #080808;
   --color-card: #111111;
   --color-edge: rgba(255, 255, 255, 0.06);
-  --color-accent: #00c805;
-  --color-glow: #39ff63;
+  --color-accent: #ccff00;
+  --color-glow: #e5ff66;
   --color-foreground: #ffffff;
   --color-muted: #a0a0a0;
 
@@ -45,7 +45,7 @@ body {
 }
 
 ::selection {
-  background-color: rgba(0, 200, 5, 0.25);
+  background-color: rgba(204, 255, 0, 0.25);
   color: #ffffff;
 }
 
@@ -64,15 +64,15 @@ body {
 .glow-spot {
   background: radial-gradient(
     ellipse at center,
-    rgba(0, 200, 5, 0.12) 0%,
-    rgba(0, 200, 5, 0.04) 40%,
+    rgba(204, 255, 0, 0.12) 0%,
+    rgba(204, 255, 0, 0.04) 40%,
     transparent 70%
   );
 }
 
 /* Focus visibility for accessibility */
 :focus-visible {
-  outline: 2px solid rgba(57, 255, 99, 0.6);
+  outline: 2px solid rgba(229, 255, 102, 0.6);
   outline-offset: 2px;
   border-radius: 4px;
 }

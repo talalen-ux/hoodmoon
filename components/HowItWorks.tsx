@@ -76,7 +76,7 @@ export function HowItWorks() {
                 className="relative flex items-start gap-6 pl-0"
               >
                 {/* Glowing node */}
-                <span className="relative z-10 flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-accent/30 bg-background text-accent shadow-[0_0_20px_rgba(0,200,5,0.25)] sm:h-14 sm:w-14">
+                <span className="relative z-10 flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-accent/30 bg-background text-accent shadow-[0_0_20px_rgba(204,255,0,0.25)] sm:h-14 sm:w-14">
                   <Icon width={22} height={22} />
                 </span>
                 <div className="pt-1.5">

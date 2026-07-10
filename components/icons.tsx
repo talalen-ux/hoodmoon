@@ -23,7 +23,7 @@ export function MoonMark(props: IconProps) {
         d="M20.5 5.6A11.2 11.2 0 1 0 26.4 16 8.4 8.4 0 0 1 20.5 5.6Z"
         fill="currentColor"
       />
-      <circle cx="27" cy="9" r="1.6" fill="#00C805" />
+      <circle cx="27" cy="9" r="1.6" fill="#CCFF00" />
     </svg>
   );
 }

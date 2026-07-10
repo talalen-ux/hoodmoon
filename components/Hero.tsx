@@ -63,7 +63,7 @@ export function Hero() {
             href="#buy"
             whileHover={{ scale: 1.03 }}
             whileTap={{ scale: 0.98 }}
-            className="rounded-full bg-accent px-8 py-3.5 text-sm font-semibold text-black shadow-[0_0_32px_rgba(0,200,5,0.35)] transition-shadow duration-300 hover:shadow-[0_0_48px_rgba(0,200,5,0.55)]"
+            className="rounded-full bg-accent px-8 py-3.5 text-sm font-semibold text-black shadow-[0_0_32px_rgba(204,255,0,0.35)] transition-shadow duration-300 hover:shadow-[0_0_48px_rgba(204,255,0,0.55)]"
           >
             Buy HOODMOON
           </motion.a>

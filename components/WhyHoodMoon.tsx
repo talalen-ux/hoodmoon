@@ -39,7 +39,7 @@ export function WhyHoodMoon() {
                 transition={{ type: "spring", stiffness: 300, damping: 24 }}
                 className="group flex h-full flex-col gap-5 rounded-3xl border border-edge bg-card p-8 transition-colors duration-500 hover:border-accent/30"
               >
-                <span className="flex h-12 w-12 items-center justify-center rounded-2xl border border-edge bg-white/[0.03] text-accent transition-shadow duration-500 group-hover:shadow-[0_0_24px_rgba(0,200,5,0.25)]">
+                <span className="flex h-12 w-12 items-center justify-center rounded-2xl border border-edge bg-white/[0.03] text-accent transition-shadow duration-500 group-hover:shadow-[0_0_24px_rgba(204,255,0,0.25)]">
                   <Icon width={22} height={22} />
                 </span>
                 <h3 className="text-xl font-semibold tracking-tight text-foreground">

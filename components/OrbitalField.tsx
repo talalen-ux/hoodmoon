@@ -112,15 +112,15 @@ export function OrbitalField() {
 
         // Soft glow halo.
         const glow = ctx.createRadialGradient(x, y, 0, x, y, p.size * 7);
-        glow.addColorStop(0, `rgba(57,255,99,${alpha * 0.35})`);
-        glow.addColorStop(1, "rgba(57,255,99,0)");
+        glow.addColorStop(0, `rgba(229,255,102,${alpha * 0.35})`);
+        glow.addColorStop(1, "rgba(229,255,102,0)");
         ctx.fillStyle = glow;
         ctx.beginPath();
         ctx.arc(x, y, p.size * 7, 0, Math.PI * 2);
         ctx.fill();
 
         // Core.
-        ctx.fillStyle = `rgba(190,255,205,${alpha})`;
+        ctx.fillStyle = `rgba(235,255,180,${alpha})`;
         ctx.beginPath();
         ctx.arc(x, y, p.size, 0, Math.PI * 2);
         ctx.fill();

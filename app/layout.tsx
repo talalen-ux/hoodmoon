@@ -3,56 +3,49 @@ import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import "./globals.css";
 
-const siteUrl = "https://hoodmoon.xyz";
+const siteUrl = "https://print.markets";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "HoodMoon — Hold Longer. Earn More.",
-    template: "%s — HoodMoon",
+    default: "Print — trade the earnings reaction, on-chain",
+    template: "%s — Print",
   },
   description:
-    "HoodMoon is the community token of Robinhood Chain that rewards long-term holders through Uniswap v4 Hooks. Simply holding unlocks onchain rewards.",
+    "Print runs pari-mutuel pools on post-earnings moves, settled on-chain the instant the print lands. Pick a bucket — ±3%, ±6%, ±10% — before the pool closes. No LPs, no market makers: bettors are counterparty to each other. Built on Robinhood Chain, settled off Chainlink Data Streams.",
   keywords: [
-    "HoodMoon",
+    "Print",
+    "earnings",
+    "prediction market",
+    "pari-mutuel",
     "Robinhood Chain",
-    "Uniswap v4 Hooks",
-    "community token",
-    "holding rewards",
-    "onchain rewards",
+    "Chainlink Data Streams",
+    "on-chain betting",
+    "NVDA earnings",
   ],
   openGraph: {
-    title: "HoodMoon — Hold Longer. Earn More.",
+    title: "Print — trade the earnings reaction, on-chain",
     description:
-      "The community token of Robinhood Chain that rewards long-term holders through Uniswap v4 Hooks.",
+      "Pari-mutuel pools on the post-earnings move, settled on-chain the instant the print lands. Built on Robinhood Chain.",
     url: siteUrl,
-    siteName: "HoodMoon",
+    siteName: "Print",
     type: "website",
-    locale: "en_US",
   },
   twitter: {
     card: "summary_large_image",
-    title: "HoodMoon — Hold Longer. Earn More.",
-    description:
-      "The community token of Robinhood Chain that rewards long-term holders through Uniswap v4 Hooks.",
+    title: "Print — trade the earnings reaction, on-chain",
+    description: "Pari-mutuel earnings-print markets on Robinhood Chain.",
   },
-  robots: {
-    index: true,
-    follow: true,
-  },
+  robots: { index: true, follow: true },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#000000",
+  themeColor: "#06080a",
   width: "device-width",
   initialScale: 1,
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
       <body className="font-sans">{children}</body>

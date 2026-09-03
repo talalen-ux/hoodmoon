@@ -1,8 +1,8 @@
 {
-  "name": "hoodmoon",
+  "name": "print",
   "version": "1.0.0",
   "private": true,
-  "description": "HoodMoon — the community token of Robinhood Chain that rewards long-term holders through Uniswap v4 Hooks.",
+  "description": "Print — pari-mutuel prediction markets on the post-earnings move, settled on-chain. Built on Robinhood Chain, settled off Chainlink Data Streams.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

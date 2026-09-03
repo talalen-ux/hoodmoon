@@ -1,94 +1,112 @@
 import type { SVGProps } from "react";
 
-type IconProps = SVGProps<SVGSVGElement>;
+type P = SVGProps<SVGSVGElement>;
 
-const base: IconProps = {
-  width: 20,
-  height: 20,
+const base: P = {
+  width: 18,
+  height: 18,
   viewBox: "0 0 24 24",
   fill: "none",
   stroke: "currentColor",
-  strokeWidth: 1.5,
+  strokeWidth: 1.7,
   strokeLinecap: "round",
   strokeLinejoin: "round",
   "aria-hidden": true,
 };
 
-/** HoodMoon mark: a crescent moon carved from a circle by an orbital arc. */
-export function MoonMark(props: IconProps) {
+/** Print mark — a "P" beside a rising print tick. */
+export function PrintMark(props: P) {
   return (
-    <svg width={28} height={28} viewBox="0 0 32 32" fill="none" aria-hidden {...props}>
-      <circle cx="16" cy="16" r="13" stroke="currentColor" strokeWidth="1.5" opacity="0.25" />
+    <svg width={26} height={26} viewBox="0 0 32 32" fill="none" aria-hidden {...props}>
       <path
-        d="M20.5 5.6A11.2 11.2 0 1 0 26.4 16 8.4 8.4 0 0 1 20.5 5.6Z"
-        fill="currentColor"
+        d="M6 24V8M6 8h6a4 4 0 0 1 0 8H6"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
-      <circle cx="27" cy="9" r="1.6" fill="#CCFF00" />
+      <path
+        d="M18 22l4.5-6 3 3 2.5-3.5"
+        stroke="var(--color-accent)"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
 
-export function ChainIcon(props: IconProps) {
+export function BoltIcon(props: P) {
   return (
     <svg {...base} {...props}>
-      <path d="M9.5 14.5 14.5 9.5" />
-      <path d="M12.5 6.5 14 5a3.54 3.54 0 0 1 5 5l-1.5 1.5" />
-      <path d="M11.5 17.5 10 19a3.54 3.54 0 0 1-5-5l1.5-1.5" />
+      <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" />
     </svg>
   );
 }
 
-export function HookIcon(props: IconProps) {
-  return (
-    <svg {...base} {...props}>
-      <path d="M12 3v9a4.5 4.5 0 1 1-9 0v-1" />
-      <circle cx="12" cy="3" r="1" fill="currentColor" stroke="none" />
-      <path d="M16 8a5 5 0 0 1 5 5v1a5 5 0 0 1-5 5" opacity="0.5" />
-    </svg>
-  );
-}
-
-export function OpenIcon(props: IconProps) {
+export function ClockIcon(props: P) {
   return (
     <svg {...base} {...props}>
       <circle cx="12" cy="12" r="9" />
-      <path d="M3.6 9h16.8M3.6 15h16.8" />
-      <path d="M12 3a15.3 15.3 0 0 1 0 18 15.3 15.3 0 0 1 0-18Z" />
+      <path d="M12 7v5l3 2" />
     </svg>
   );
 }
 
-export function CommunityIcon(props: IconProps) {
+export function CalendarIcon(props: P) {
   return (
     <svg {...base} {...props}>
-      <circle cx="9" cy="8.5" r="3" />
-      <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />
-      <circle cx="16.5" cy="9.5" r="2.25" opacity="0.6" />
-      <path d="M15.5 14.6a4.5 4.5 0 0 1 5 4.4" opacity="0.6" />
+      <rect x="3.5" y="5" width="17" height="16" rx="2.5" />
+      <path d="M3.5 9.5h17M8 3v4M16 3v4" />
     </svg>
   );
 }
 
-export function RewardsIcon(props: IconProps) {
+export function LockIcon(props: P) {
   return (
     <svg {...base} {...props}>
-      <circle cx="12" cy="12" r="8.5" />
-      <path d="M12 7.5v9M9.25 10a2.75 2.4 0 1 1 2.75 2 2.75 2.4 0 1 0 2.75 2" />
+      <rect x="5" y="11" width="14" height="9" rx="2" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
     </svg>
   );
 }
 
-export function ConvictionIcon(props: IconProps) {
+export function CheckIcon(props: P) {
   return (
     <svg {...base} {...props}>
-      <path d="M4 17.5 9.5 12l3.5 3.5L20 8.5" />
-      <path d="M15.5 8.5H20V13" />
-      <path d="M4 21h16" opacity="0.4" />
+      <path d="M20 6 9 17l-5-5" />
     </svg>
   );
 }
 
-export function WalletIcon(props: IconProps) {
+export function TrendUpIcon(props: P) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M3 17 9 11l4 4 8-8" />
+      <path d="M15 7h6v6" />
+    </svg>
+  );
+}
+
+export function LayersIcon(props: P) {
+  return (
+    <svg {...base} {...props}>
+      <path d="m12 3 9 5-9 5-9-5 9-5Z" />
+      <path d="m3 13 9 5 9-5" opacity="0.5" />
+    </svg>
+  );
+}
+
+export function ScaleIcon(props: P) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M12 3v18M7 7h10" />
+      <path d="M7 7 4 13a3 3 0 0 0 6 0L7 7ZM17 7l-3 6a3 3 0 0 0 6 0l-3-6Z" />
+    </svg>
+  );
+}
+
+export function WalletIcon(props: P) {
   return (
     <svg {...base} {...props}>
       <rect x="3" y="6" width="18" height="13" rx="3" />
@@ -98,40 +116,33 @@ export function WalletIcon(props: IconProps) {
   );
 }
 
-export function SwapIcon(props: IconProps) {
+export function CloseIcon(props: P) {
   return (
     <svg {...base} {...props}>
-      <path d="M7 4v12" />
-      <path d="m4 13 3 3 3-3" />
-      <path d="M17 20V8" />
-      <path d="m14 11 3-3 3 3" />
+      <path d="M6 6l12 12M18 6 6 18" />
     </svg>
   );
 }
 
-export function DistributeIcon(props: IconProps) {
+export function BackIcon(props: P) {
   return (
     <svg {...base} {...props}>
-      <circle cx="12" cy="12" r="2.25" />
-      <path d="M12 3v4.5M12 16.5V21M3 12h4.5M16.5 12H21" opacity="0.7" />
-      <circle cx="12" cy="3" r="1" fill="currentColor" stroke="none" />
-      <circle cx="12" cy="21" r="1" fill="currentColor" stroke="none" />
-      <circle cx="3" cy="12" r="1" fill="currentColor" stroke="none" />
-      <circle cx="21" cy="12" r="1" fill="currentColor" stroke="none" />
+      <path d="M15 6l-6 6 6 6" />
     </svg>
   );
 }
 
-export function ArrowDownIcon(props: IconProps) {
+export function LinkIcon(props: P) {
   return (
     <svg {...base} {...props}>
-      <path d="M12 4v16" />
-      <path d="m6 14 6 6 6-6" />
+      <path d="M9.5 14.5 14.5 9.5" />
+      <path d="M12.5 6.5 14 5a3.54 3.54 0 0 1 5 5l-1.5 1.5" />
+      <path d="M11.5 17.5 10 19a3.54 3.54 0 0 1-5-5l1.5-1.5" />
     </svg>
   );
 }
 
-export function ChevronIcon(props: IconProps) {
+export function ChevronDown(props: P) {
   return (
     <svg {...base} {...props}>
       <path d="m6 9 6 6 6-6" />
@@ -139,7 +150,7 @@ export function ChevronIcon(props: IconProps) {
   );
 }
 
-export function XIcon(props: IconProps) {
+export function XIcon(props: P) {
   return (
     <svg width={18} height={18} viewBox="0 0 24 24" fill="currentColor" aria-hidden {...props}>
       <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231Zm-1.161 17.52h1.833L7.084 4.126H5.117Z" />

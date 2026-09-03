@@ -31,14 +31,16 @@ export function TickerAvatar({
   size?: number;
   radius?: number;
 }) {
+  const [broken, setBroken] = useState(false);
   const logo = symbol ? LOGOS[symbol] : undefined;
-  if (logo) {
+  if (logo && !broken) {
     return (
       <img
         src={logo}
         alt={symbol}
         width={size}
         height={size}
+        onError={() => setBroken(true)}
         className="shrink-0 object-contain"
         style={{ width: size, height: size, borderRadius: radius, background: "#fff" }}
       />

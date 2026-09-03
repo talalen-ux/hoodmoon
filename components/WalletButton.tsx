@@ -70,7 +70,7 @@ export function WalletButton() {
       <button
         type="button"
         onClick={() => setSheet(true)}
-        className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-black transition-shadow hover:shadow-[0_0_24px_rgba(0,230,118,0.45)]"
+        className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-black transition-shadow hover:shadow-[0_0_24px_rgba(39,238,68,0.45)]"
       >
         <WalletIcon width={16} height={16} />
         Connect

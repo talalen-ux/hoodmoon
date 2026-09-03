@@ -274,7 +274,7 @@ export function PoolDetail({ poolId, onBack }: { poolId: string; onBack: () => v
                   type="button"
                   onClick={placeBet}
                   disabled={!canBet}
-                  className="mt-4 w-full rounded-lg bg-accent py-3 text-sm font-semibold text-black transition-shadow enabled:hover:shadow-[0_0_24px_rgba(0,230,118,0.45)] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="mt-4 w-full rounded-lg bg-accent py-3 text-sm font-semibold text-black transition-shadow enabled:hover:shadow-[0_0_24px_rgba(39,238,68,0.45)] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {!state.user.connected
                     ? "connect wallet to bet"

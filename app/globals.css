@@ -1,20 +1,22 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg: #06080a;
-  --color-surface: #0a0d11;
-  --color-card: #0e1217;
-  --color-elevated: #131820;
-  --color-edge: rgba(255, 255, 255, 0.07);
-  --color-edge-strong: rgba(255, 255, 255, 0.13);
-  --color-accent: #00e676;
-  --color-accent-dim: #00b85f;
-  --color-up: #00e676;
-  --color-down: #ff5252;
-  --color-flat: #8a94a6;
+  /* primary #243b2e (deep forest green) · secondary #27ee44 (vivid green) */
+  --color-bg: #0a120d;
+  --color-surface: #0e1712;
+  --color-card: #13201a;
+  --color-elevated: #1a2b22;
+  --color-primary: #243b2e;
+  --color-edge: rgba(120, 220, 150, 0.1);
+  --color-edge-strong: rgba(120, 220, 150, 0.2);
+  --color-accent: #27ee44;
+  --color-accent-dim: #17c235;
+  --color-up: #27ee44;
+  --color-down: #ff5a5a;
+  --color-flat: #8aa89a;
   --color-gold: #ffce4d;
-  --color-foreground: #eef2f6;
-  --color-muted: #8a94a6;
+  --color-foreground: #eaf3ee;
+  --color-muted: #8ba79a;
 
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
@@ -54,9 +56,9 @@ body {
   overflow-x: hidden;
 }
 
-::selection { background-color: rgba(0, 230, 118, 0.28); color: #fff; }
+::selection { background-color: rgba(39, 238, 68, 0.3); color: #fff; }
 
-* { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.14) transparent; }
+* { scrollbar-width: thin; scrollbar-color: rgba(120, 220, 150, 0.18) transparent; }
 
 :focus-visible {
   outline: 2px solid var(--color-accent);

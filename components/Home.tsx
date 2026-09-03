@@ -59,7 +59,7 @@ export function Home({ onOpen }: { onOpen: (id: string) => void }) {
         <div
           aria-hidden
           className="pointer-events-none absolute -right-24 -top-28 h-72 w-72 rounded-full"
-          style={{ background: "radial-gradient(circle, rgba(0,230,118,0.18), transparent 70%)" }}
+          style={{ background: "radial-gradient(circle, rgba(39,238,68,0.18), transparent 70%)" }}
         />
         <div className="relative">
           <span className="inline-flex items-center gap-1.5 rounded-full border border-edge bg-white/[0.03] px-3 py-1 text-xs text-muted">
@@ -79,7 +79,7 @@ export function Home({ onOpen }: { onOpen: (id: string) => void }) {
           <div className="mt-7 flex flex-wrap items-center gap-6">
             <a
               href="#calendar"
-              className="rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-black transition-shadow hover:shadow-[0_0_28px_rgba(0,230,118,0.45)]"
+              className="rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-black transition-shadow hover:shadow-[0_0_28px_rgba(39,238,68,0.45)]"
             >
               See this week&apos;s prints
             </a>

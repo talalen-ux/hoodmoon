@@ -28,7 +28,7 @@ import {
 } from "./parimutuel";
 
 export const GRADS: [string, string][] = [
-  ["#00e676", "#69f0ae"],
+  ["#27ee44", "#7df58f"],
   ["#00b0ff", "#40c4ff"],
   ["#ff5252", "#ff8a80"],
   ["#ffab00", "#ffd740"],

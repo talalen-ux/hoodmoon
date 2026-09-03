@@ -7,15 +7,19 @@ import { Ticker } from "@/components/Ticker";
 import { Home } from "@/components/Home";
 import { MarketDetail } from "@/components/MarketDetail";
 import { Footer } from "@/components/Footer";
+import { Intro } from "@/components/Intro";
 import { PrintMark } from "@/components/icons";
 
 function App() {
   const { ready } = useStore();
+  const [entered, setEntered] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
 
   useEffect(() => {
     window.scrollTo({ top: 0 });
   }, [selected]);
+
+  if (!entered) return <Intro onEnter={() => setEntered(true)} />;
 
   return (
     <>

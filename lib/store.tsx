@@ -129,6 +129,7 @@ const TICKERS: Tk[] = [
   { sym: "NFLX", co: "Netflix", emoji: "🎬", grad: 2, px: 1180.4 },
   { sym: "SOFI", co: "SoFi", emoji: "💸", grad: 5, px: 24.8 },
   { sym: "MARA", co: "MARA Holdings", emoji: "⛏️", grad: 3, px: 21.4 },
+  { sym: "MU", co: "Micron", emoji: "🧠", grad: 1, px: 118.7 },
 ];
 const tkBy = (sym: string) => TICKERS.find((t) => t.sym === sym)!;
 
@@ -246,6 +247,7 @@ function seedMarkets(now: number): Market[] {
     ["TSLA", -2.3, 7, 410_000, false],
     ["HOOD", 0.9, 52, 180_000, false],
     ["COIN", 3.1, 52, 150_000, false],
+    ["MU", 1.2, 90, 140_000, false],
     ["AAPL", -0.4, 112, 120_000, false],
     ["MSFT", 0.6, 112, 96_000, false],
   ];

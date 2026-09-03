@@ -4,8 +4,19 @@ import { useEffect, useState } from "react";
 import { GRADS, type MarketStatus } from "@/lib/store";
 import { poolTotal, type Bucket, type Stakes } from "@/lib/parimutuel";
 import { countdown } from "@/lib/format";
-import { LOGOS } from "@/lib/logos";
+import { LOGOS, BRANDS } from "@/lib/logos";
 import { LockIcon, CheckIcon } from "./icons";
+
+/** Pick black or white text for legibility on a given background hex. */
+function readableOn(hex: string): string {
+  const h = hex.replace("#", "");
+  const r = parseInt(h.slice(0, 2), 16) / 255;
+  const g = parseInt(h.slice(2, 4), 16) / 255;
+  const b = parseInt(h.slice(4, 6), 16) / 255;
+  const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  return L > 0.45 ? "#0a120d" : "#ffffff";
+}
 
 export function TickerAvatar({
   emoji,
@@ -31,6 +42,27 @@ export function TickerAvatar({
         className="shrink-0 object-contain"
         style={{ width: size, height: size, borderRadius: radius, background: "#fff" }}
       />
+    );
+  }
+  // Brand-colored monogram tile — a placeholder, not a logo reproduction.
+  const brand = symbol ? BRANDS[symbol] : undefined;
+  if (brand) {
+    return (
+      <div
+        className="flex shrink-0 items-center justify-center font-mono font-bold"
+        style={{
+          width: size,
+          height: size,
+          borderRadius: radius,
+          background: brand,
+          color: readableOn(brand),
+          fontSize: size * 0.34,
+          letterSpacing: "-0.02em",
+        }}
+        aria-hidden
+      >
+        {symbol!.slice(0, 2)}
+      </div>
     );
   }
   const [from, to] = GRADS[grad % GRADS.length];

@@ -1,55 +1,50 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { motion } from "framer-motion";
-import { useStore, statusOf, type Pool } from "@/lib/store";
-import {
-  BUCKETS,
-  poolTotal,
-  impliedProb,
-  payoutMultiple,
-  quote,
-  settlePayout,
-} from "@/lib/parimutuel";
-import { usd, usdFull, pct, mult, prob, clockLabel, timeAgo, shortAddr } from "@/lib/format";
-import { TickerAvatar, StatusPill, BucketBar, Countdown } from "./primitives";
+import { useStore, statusOf, type Market } from "@/lib/store";
+import { poolTotal, impliedProb, payoutMultiple, quote, settlePayout } from "@/lib/parimutuel";
+import { usd, usdFull, pct, mult, prob, timeAgo, shortAddr } from "@/lib/format";
+import { TickerAvatar, StatusPill, BucketBar, Countdown, dirText } from "./primitives";
+import { KIND_META } from "./kinds";
 import { BackIcon, LockIcon, BoltIcon, CheckIcon } from "./icons";
 
-function dirText(dir: string) {
-  return dir === "up" ? "text-up" : dir === "down" ? "text-down" : "text-flat";
+function metricText(m: Market, v: number): string {
+  if (m.kind === "breadth") return `${v} green`;
+  if (m.kind === "macro") return `${v}%`;
+  return pct(v);
 }
 
-export function PoolDetail({ poolId, onBack }: { poolId: string; onBack: () => void }) {
+export function MarketDetail({ marketId, onBack }: { marketId: string; onBack: () => void }) {
   const { state, dispatch } = useStore();
-  const pool = state.pools.find((p) => p.id === poolId);
+  const m = state.markets.find((x) => x.id === marketId);
   const now = state.now;
   const [selected, setSelected] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
 
-  const total = pool ? poolTotal(pool.stakes) : 0;
-  const status = pool ? statusOf(pool, now) : "open";
+  const total = m ? poolTotal(m.stakes) : 0;
+  const status = m ? statusOf(m, now) : "open";
   const open = status === "open";
-  const myPos = pool ? state.user.positions[pool.id]?.staked ?? {} : {};
+  const myPos = m ? state.user.positions[m.id]?.staked ?? {} : {};
 
   const amt = Math.max(0, Number(amount) || 0);
-  const q = pool && selected ? quote(pool.stakes, selected, amt, pool.rakeBps) : null;
+  const q = m && selected ? quote(m.stakes, selected, amt, m.rakeBps) : null;
 
   const settledPnl = useMemo(() => {
-    if (!pool || !pool.winner) return null;
+    if (!m || !m.winner) return null;
     let staked = 0;
     let payout = 0;
     for (const [b, s] of Object.entries(myPos)) {
       staked += s;
-      payout += settlePayout(pool.stakes, b, s, pool.winner, pool.rakeBps);
+      payout += settlePayout(m.stakes, b, s, m.winner, m.rakeBps);
     }
     if (staked === 0) return null;
     return { staked, payout, pnl: payout - staked };
-  }, [pool, myPos]);
+  }, [m, myPos]);
 
-  if (!pool) {
+  if (!m) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-20 text-center">
-        <p className="text-muted">Pool not found.</p>
+        <p className="text-muted">Market not found.</p>
         <button onClick={onBack} className="mt-4 text-accent">
           ← back to markets
         </button>
@@ -57,11 +52,13 @@ export function PoolDetail({ poolId, onBack }: { poolId: string; onBack: () => v
     );
   }
 
+  const meta = KIND_META[m.kind];
+  const numeric = m.kind !== "breadth" && m.kind !== "macro";
   const canBet = open && state.user.connected && selected && amt > 0 && amt <= state.user.balance;
 
   const placeBet = () => {
     if (!canBet || !selected) return;
-    dispatch({ type: "BET", poolId: pool.id, bucket: selected, amount: amt });
+    dispatch({ type: "BET", marketId: m.id, bucket: selected, amount: amt });
     setAmount("");
   };
 
@@ -76,53 +73,54 @@ export function PoolDetail({ poolId, onBack }: { poolId: string; onBack: () => v
       </button>
 
       {/* Header */}
-      <div className="flex flex-wrap items-center gap-4">
-        <TickerAvatar emoji={pool.emoji} grad={pool.grad} size={56} radius={14} />
+      <div className="flex flex-wrap items-start gap-4">
+        <TickerAvatar emoji={m.emoji} grad={m.grad} symbol={m.symbol} size={56} radius={14} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="font-mono text-2xl font-bold">{pool.symbol}</h1>
-            <span className="text-sm text-muted">{pool.company}</span>
+            <span className="inline-flex items-center gap-1 rounded-md border border-accent/25 bg-accent/10 px-1.5 py-0.5 text-[11px] font-semibold text-accent">
+              <meta.Icon width={12} height={12} /> {meta.label}
+            </span>
             <StatusPill status={status} />
           </div>
-          <p className="mt-1 text-xs text-muted">
-            {pool.sector} · prints {clockLabel(pool.printTime)} · prev close ${pool.prevClose.toFixed(2)} · implied ±
-            {pool.impliedVol.toFixed(1)}%
-          </p>
+          <h1 className="mt-1.5 text-xl font-bold leading-tight sm:text-2xl">{m.title}</h1>
+          <p className="mt-1 text-xs text-muted">{m.refLabel}</p>
         </div>
       </div>
 
       {/* Status strip */}
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Metric label="pool size" value={usd(total)} sub={usdFull(total)} />
-        <Metric label="rake" value={`${pool.rakeBps / 100}%`} sub="house cut" />
+        <Metric label="rake" value={`${m.rakeBps / 100}%`} sub={m.kind === "round" || m.kind === "breadth" ? "retention" : "house cut"} />
         {status === "open" ? (
-          <Metric label="closes in" value={<Countdown target={pool.closeTime} />} sub={clockLabel(pool.closeTime)} accent />
+          <Metric label="closes in" value={<Countdown target={m.closeTime} />} sub={m.metricLabel} accent />
         ) : status === "settled" ? (
           <Metric
-            label="printed"
-            value={<span className={pool.actualMove! >= 0 ? "text-up" : "text-down"}>{pct(pool.actualMove!)}</span>}
-            sub="realized move"
+            label="settled"
+            value={
+              <span className={numeric ? (m.metric! >= 0 ? "text-up" : "text-down") : "text-foreground"}>
+                {metricText(m, m.metric!)}
+              </span>
+            }
+            sub="result"
           />
         ) : (
-          <Metric
-            label={status === "locked" ? "prints in" : "settles in"}
-            value={<Countdown target={status === "locked" ? pool.printTime : pool.settleTime} />}
-            sub="Chainlink settle"
-            gold
-          />
+          <Metric label="settles in" value={<Countdown target={m.settleTime} />} sub={m.metricLabel} gold />
         )}
-        <Metric label="settles" value={clockLabel(pool.settleTime)} sub="print + 4h" />
+        <Metric label="buckets" value={String(m.buckets.length)} sub={m.metricLabel} />
       </div>
 
       {/* Settlement banner */}
-      {status === "settled" && pool.winner && (
+      {status === "settled" && m.winner && (
         <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-edge bg-card p-4">
           <CheckIcon width={18} height={18} className="text-accent" />
           <span className="text-sm">
-            Settled at <span className={`font-mono font-semibold ${pool.actualMove! >= 0 ? "text-up" : "text-down"}`}>{pct(pool.actualMove!)}</span> —
-            winning bucket{" "}
-            <span className={`font-mono font-semibold ${dirText(BUCKETS.find((b) => b.id === pool.winner)!.dir)}`}>
-              {BUCKETS.find((b) => b.id === pool.winner)!.label}
+            Settled at{" "}
+            <span className={`font-mono font-semibold ${numeric ? (m.metric! >= 0 ? "text-up" : "text-down") : "text-foreground"}`}>
+              {metricText(m, m.metric!)}
+            </span>{" "}
+            — winning bucket{" "}
+            <span className={`font-mono font-semibold ${dirText(m.buckets.find((b) => b.id === m.winner)!.dir)}`}>
+              {m.buckets.find((b) => b.id === m.winner)!.label}
             </span>
           </span>
           {settledPnl && (
@@ -138,20 +136,20 @@ export function PoolDetail({ poolId, onBack }: { poolId: string; onBack: () => v
         {/* Bucket ladder */}
         <div>
           <div className="mb-3">
-            <BucketBar stakes={pool.stakes} winner={pool.winner} height={10} />
+            <BucketBar stakes={m.stakes} buckets={m.buckets} winner={m.winner} height={10} />
           </div>
           <div className="overflow-hidden rounded-xl border border-edge">
-            <div className="grid grid-cols-[1.4fr_1fr_1fr_1fr] gap-2 border-b border-edge bg-white/[0.02] px-4 py-2 text-[11px] uppercase tracking-wide text-muted">
+            <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr] gap-2 border-b border-edge bg-white/[0.02] px-4 py-2 text-[11px] uppercase tracking-wide text-muted">
               <span>bucket</span>
               <span className="text-right">crowd</span>
               <span className="text-right">payout</span>
               <span className="text-right">your stake</span>
             </div>
-            {BUCKETS.map((b) => {
-              const p = impliedProb(pool.stakes, b.id);
-              const m = payoutMultiple(pool.stakes, b.id, pool.rakeBps);
+            {m.buckets.map((b) => {
+              const p = impliedProb(m.stakes, b.id);
+              const mm = payoutMultiple(m.stakes, b.id, m.rakeBps);
               const mine = myPos[b.id] ?? 0;
-              const isWin = pool.winner === b.id;
+              const isWin = m.winner === b.id;
               const isSel = selected === b.id;
               return (
                 <button
@@ -159,19 +157,19 @@ export function PoolDetail({ poolId, onBack }: { poolId: string; onBack: () => v
                   type="button"
                   disabled={!open}
                   onClick={() => setSelected(b.id)}
-                  className={`grid w-full grid-cols-[1.4fr_1fr_1fr_1fr] items-center gap-2 border-b border-edge px-4 py-3 text-left transition-colors last:border-b-0 ${
+                  className={`grid w-full grid-cols-[1.5fr_1fr_1fr_1fr] items-center gap-2 border-b border-edge px-4 py-3 text-left transition-colors last:border-b-0 ${
                     isSel ? "bg-accent/10" : "hover:bg-white/[0.02]"
                   } ${!open ? "cursor-default" : ""} ${isWin ? "bg-accent/[0.06]" : ""}`}
                 >
                   <span className="flex items-center gap-2">
-                    <span className={`h-2 w-2 rounded-full`} style={{ background: `var(--color-${b.dir === "flat" ? "flat" : b.dir})` }} />
+                    <span className="h-2 w-2 rounded-full" style={{ background: colorFor(b.dir) }} />
                     <span className={`font-mono text-sm font-medium ${dirText(b.dir)}`}>{b.label}</span>
                     {isWin && <CheckIcon width={13} height={13} className="text-accent" />}
                   </span>
                   <span className="text-right font-mono text-sm tnum">{prob(p)}</span>
-                  <span className="text-right font-mono text-sm text-muted tnum">{mult(m)}</span>
+                  <span className="text-right font-mono text-sm text-muted tnum">{mult(mm)}</span>
                   <span className="text-right font-mono text-sm tnum">
-                    {mine > 0 ? usd(mine, { cents: false }) : <span className="text-muted/40">—</span>}
+                    {mine > 0 ? usd(mine) : <span className="text-muted/40">—</span>}
                   </span>
                 </button>
               );
@@ -184,9 +182,9 @@ export function PoolDetail({ poolId, onBack }: { poolId: string; onBack: () => v
               <BoltIcon width={15} height={15} className="text-accent" /> Live bets
             </h3>
             <div className="flex flex-col gap-1.5">
-              {pool.bets.length === 0 && <p className="text-sm text-muted">No bets yet.</p>}
-              {pool.bets.slice(0, 12).map((bet) => {
-                const b = BUCKETS.find((x) => x.id === bet.bucket)!;
+              {m.bets.length === 0 && <p className="text-sm text-muted">No bets yet.</p>}
+              {m.bets.slice(0, 12).map((bet) => {
+                const b = m.buckets.find((x) => x.id === bet.bucket)!;
                 return (
                   <div key={bet.id} className="flex items-center gap-3 rounded-lg border border-edge bg-card px-3 py-2 text-sm">
                     <span className="font-mono text-xs text-muted">{shortAddr(bet.bettor)}</span>
@@ -203,16 +201,16 @@ export function PoolDetail({ poolId, onBack }: { poolId: string; onBack: () => v
         {/* Bet panel */}
         <div className="lg:sticky lg:top-20 lg:h-fit">
           <div className="rounded-xl border border-edge bg-card p-4">
-            {status === "open" ? (
+            {open ? (
               <>
                 <h3 className="text-sm font-semibold">Place a bet</h3>
                 <p className="mt-0.5 text-xs text-muted">
-                  Closes in <Countdown target={pool.closeTime} className="font-mono text-accent" />
+                  Closes in <Countdown target={m.closeTime} className="font-mono text-accent" />
                 </p>
 
-                <p className="mt-4 mb-1.5 text-[11px] text-muted">1 · pick a bucket</p>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {BUCKETS.map((b) => (
+                <p className="mb-1.5 mt-4 text-[11px] text-muted">1 · pick a bucket</p>
+                <div className={`grid gap-1.5 ${m.buckets.length <= 3 ? "grid-cols-3" : "grid-cols-2"}`}>
+                  {m.buckets.map((b) => (
                     <button
                       key={b.id}
                       type="button"
@@ -262,7 +260,7 @@ export function PoolDetail({ poolId, onBack }: { poolId: string; onBack: () => v
 
                 {q && amt > 0 && selected && (
                   <div className="mt-4 space-y-1.5 rounded-lg bg-white/[0.02] p-3 text-xs">
-                    <Row label="bucket" value={<span className={dirText(BUCKETS.find((b) => b.id === selected)!.dir)}>{BUCKETS.find((b) => b.id === selected)!.label}</span>} />
+                    <Row label="bucket" value={<span className={dirText(m.buckets.find((b) => b.id === selected)!.dir)}>{m.buckets.find((b) => b.id === selected)!.label}</span>} />
                     <Row label="payout if it hits" value={<span className="text-accent">{mult(q.multiple)}</span>} />
                     <Row label="you'd receive" value={usd(q.grossIfWin, { cents: true })} />
                     <Row label="profit if win" value={<span className="text-up">+{usd(q.profitIfWin, { cents: true })}</span>} />
@@ -284,7 +282,7 @@ export function PoolDetail({ poolId, onBack }: { poolId: string; onBack: () => v
                         ? "enter an amount"
                         : amt > state.user.balance
                           ? "insufficient balance"
-                          : `Bet ${usd(amt)} on ${BUCKETS.find((b) => b.id === selected)!.short}`}
+                          : `Bet ${usd(amt)} on ${m.buckets.find((b) => b.id === selected)!.short}`}
                 </button>
               </>
             ) : (
@@ -292,19 +290,15 @@ export function PoolDetail({ poolId, onBack }: { poolId: string; onBack: () => v
                 <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-full border border-edge bg-white/[0.03]">
                   {status === "settled" ? <CheckIcon className="text-accent" /> : <LockIcon className="text-gold" />}
                 </span>
-                <p className="mt-3 text-sm font-semibold">
-                  {status === "settled" ? "Pool settled" : status === "live" ? "Print is live" : "Betting closed"}
-                </p>
+                <p className="mt-3 text-sm font-semibold">{status === "settled" ? "Market settled" : "Betting closed"}</p>
                 <p className="mt-1 text-xs leading-relaxed text-muted">
                   {status === "settled"
-                    ? "This pool has paid out from Chainlink Data Streams."
-                    : status === "live"
-                      ? "The number is out and the price is moving. Settlement lands 4 hours after the print."
-                      : "The pool closed before the print. Settlement follows the number."}
+                    ? "This market has paid out from the on-chain result."
+                    : "The pool closed ahead of the settling event. The result follows on-chain."}
                 </p>
                 {status !== "settled" && (
                   <p className="mt-3 font-mono text-sm text-gold tnum">
-                    <Countdown target={status === "locked" ? pool.printTime : pool.settleTime} />
+                    <Countdown target={m.settleTime} />
                   </p>
                 )}
               </div>
@@ -317,17 +311,17 @@ export function PoolDetail({ poolId, onBack }: { poolId: string; onBack: () => v
               <h3 className="text-sm font-semibold">Your position</h3>
               <div className="mt-2 space-y-1.5">
                 {Object.entries(myPos).map(([bid, s]) => {
-                  const b = BUCKETS.find((x) => x.id === bid)!;
-                  const win = pool.winner === bid;
+                  const b = m.buckets.find((x) => x.id === bid)!;
+                  const win = m.winner === bid;
                   return (
                     <div key={bid} className="flex items-center justify-between text-sm">
                       <span className={`font-mono text-xs ${dirText(b.dir)}`}>{b.short}</span>
                       <span className="font-mono text-xs tnum">
-                        {usd(s, { cents: false })}
-                        {pool.winner && (
+                        {usd(s)}
+                        {m.winner && (
                           <span className={win ? "text-up" : "text-down"}>
                             {" "}
-                            → {usd(settlePayout(pool.stakes, bid, s, pool.winner, pool.rakeBps), { cents: false })}
+                            → {usd(settlePayout(m.stakes, bid, s, m.winner, m.rakeBps))}
                           </span>
                         )}
                       </span>
@@ -341,6 +335,16 @@ export function PoolDetail({ poolId, onBack }: { poolId: string; onBack: () => v
       </div>
     </div>
   );
+}
+
+function colorFor(dir: string): string {
+  return dir === "up"
+    ? "var(--color-up)"
+    : dir === "down"
+      ? "var(--color-down)"
+      : dir === "neutral"
+        ? "var(--color-accent)"
+        : "var(--color-flat)";
 }
 
 function Metric({
@@ -360,7 +364,7 @@ function Metric({
     <div className="rounded-xl border border-edge bg-card p-3">
       <p className="text-[11px] text-muted">{label}</p>
       <p className={`font-mono text-sm font-semibold tnum ${accent ? "text-accent" : gold ? "text-gold" : ""}`}>{value}</p>
-      <p className="font-mono text-[11px] text-muted">{sub}</p>
+      <p className="truncate font-mono text-[11px] text-muted">{sub}</p>
     </div>
   );
 }

@@ -1,11 +1,19 @@
 "use client";
 
 /**
- * Client-side demo store for Print. No chain calls — pools, bets, and
- * settlement are simulated so the whole lifecycle (open → locked → live →
- * settled) is visible in one sitting. The connected wallet is a mock
- * Robinhood Chain account funded with demo USDC. Real deployment swaps this
- * for RH Chain contracts + Chainlink Data Streams settlement.
+ * Client-side demo store for Print v2. No chain calls — every market is a
+ * simulated pari-mutuel pool. The product is built on a daily clock:
+ *
+ *   • THE GAP   — settles at the 9:30 open. Where does the stock open vs where
+ *                 the token traded overnight (~3am)? Only tradeable on a chain
+ *                 whose token runs 24/7 against a 9:30–4:00 underlying.
+ *   • THE CLOSE — settles at 4:00. Direction and range on the cash session.
+ *   • ROUNDS    — rotating 15/30-min pools, always something closing. Low rake.
+ *   • MACRO     — CPI / jobs / FOMC one-offs at a fixed minute.
+ *   • BREADTH   — how many of the top 20 close green.
+ *   • EARNINGS  — the wide post-print move; seasonal marquee.
+ *
+ * The connected wallet is a mock Robinhood Chain account funded with demo USDC.
  */
 
 import {
@@ -18,12 +26,16 @@ import {
   type ReactNode,
 } from "react";
 import {
-  BUCKET_IDS,
-  BUCKETS,
-  RAKE_BPS,
-  bucketForMove,
+  BREADTH_BUCKETS,
+  CLOSE_BUCKETS,
+  EARN_BUCKETS,
+  GAP_BUCKETS,
+  ROUND_BUCKETS,
+  RAKE,
+  bucketFor,
   poolTotal,
   settlePayout,
+  type Bucket,
   type Stakes,
 } from "./parimutuel";
 
@@ -38,115 +50,62 @@ export const GRADS: [string, string][] = [
   ["#448aff", "#82b1ff"],
 ];
 
+export type MarketKind = "gap" | "close" | "round" | "macro" | "breadth" | "earnings";
+
 export type Bet = {
   id: string;
-  poolId: string;
+  marketId: string;
   bucket: string;
   bettor: string;
   amount: number;
   ts: number;
 };
 
-export type Pool = {
+export type Market = {
   id: string;
-  symbol: string;
-  company: string;
+  kind: MarketKind;
+  symbol: string; // ticker, or a short code for macro/breadth
+  name: string; // company / event name
   emoji: string;
   grad: number;
-  sector: string;
-  prevClose: number;
-  impliedVol: number; // options-implied expected move, %
+  title: string; // the question
+  metricLabel: string; // units of the settling number
+  refLabel: string; // context line (e.g. "token @ 3am $178.40 · prev close $176.10")
+  buckets: Bucket[];
   closeTime: number;
-  printTime: number;
   settleTime: number;
   rakeBps: number;
   stakes: Stakes;
   bets: Bet[];
-  actualMove?: number;
+  headline?: boolean;
+  metric?: number; // realized settling number
   winner?: string;
 };
 
 export type Position = { staked: Record<string, number> };
-export type HistoryItem = {
-  poolId: string;
-  symbol: string;
-  bucket: string;
-  staked: number;
-  payout: number;
-  won: boolean;
-  ts: number;
-};
-
 export type User = {
   connected: boolean;
   address: string;
   balance: number;
   positions: Record<string, Position>;
-  history: HistoryItem[];
 };
 
-export type PoolStatus = "open" | "locked" | "live" | "settled";
+export type MarketStatus = "open" | "locked" | "settled";
 
-export function statusOf(pool: Pool, now: number): PoolStatus {
-  if (pool.winner || now >= pool.settleTime) return "settled";
-  if (now >= pool.printTime) return "live";
-  if (now >= pool.closeTime) return "locked";
+export function statusOf(m: Market, now: number): MarketStatus {
+  if (m.winner || now >= m.settleTime) return "settled";
+  if (now >= m.closeTime) return "locked";
   return "open";
 }
 
-type State = { pools: Pool[]; user: User; now: number };
+type State = { markets: Market[]; user: User; now: number };
 
 const MIN = 60_000;
-const HOUR = 3_600_000;
 
 let idc = 1;
 const uid = () => `${Date.now().toString(36)}${(idc++).toString(36)}`;
 const botAddr = () =>
-  "0x" +
-  Array.from({ length: 40 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
-
-const SKEWS: Record<string, number[]> = {
-  hypeUp: [3, 5, 9, 22, 26, 18, 17],
-  balanced: [4, 8, 16, 40, 16, 8, 8],
-  downLean: [11, 15, 18, 33, 11, 7, 5],
-  binary: [16, 14, 11, 14, 11, 14, 20],
-};
-
-function buildStakes(total: number, skew: number[]): Stakes {
-  const sum = skew.reduce((a, b) => a + b, 0);
-  const stakes: Stakes = {};
-  BUCKET_IDS.forEach((id, i) => {
-    const jitter = 0.8 + Math.random() * 0.4;
-    stakes[id] = Math.round((total * skew[i]) / sum * jitter);
-  });
-  return stakes;
-}
-
-function seedBets(pool: Pool, count: number, now: number): Bet[] {
-  const bets: Bet[] = [];
-  for (let i = 0; i < count; i++) {
-    const bucket = weightedBucket(pool.stakes);
-    bets.push({
-      id: uid(),
-      poolId: pool.id,
-      bucket,
-      bettor: botAddr(),
-      amount: Math.round(50 + Math.random() * 4000),
-      ts: now - Math.floor(Math.random() * 30 * MIN),
-    });
-  }
-  return bets.sort((a, b) => b.ts - a.ts);
-}
-
-function weightedBucket(stakes: Stakes): string {
-  const total = poolTotal(stakes) || 1;
-  let r = Math.random() * total;
-  for (const id of BUCKET_IDS) {
-    r -= stakes[id] ?? 0;
-    if (r <= 0) return id;
-  }
-  return "fl";
-}
+  "0x" + Array.from({ length: 40 }, () => "0123456789abcdef"[(Math.random() * 16) | 0]).join("");
 
 function gaussian(sd: number): number {
   const u = 1 - Math.random();
@@ -154,84 +113,275 @@ function gaussian(sd: number): number {
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v) * sd;
 }
 
-type Seed = {
-  sym: string;
-  co: string;
-  emoji: string;
-  grad: number;
-  sector: string;
-  px: number;
-  iv: number;
-  close: number; // offset minutes from now (negative = past)
-  size: number;
-  skew: keyof typeof SKEWS;
-  move?: number; // preset realized move for already-settled pools
-};
-
-const SEED: Seed[] = [
-  { sym: "NVDA", co: "NVIDIA", emoji: "🟩", grad: 0, sector: "Semis", px: 178.4, iv: 8.5, close: 8, size: 1_940_000, skew: "hypeUp" },
-  { sym: "HOOD", co: "Robinhood Markets", emoji: "🪶", grad: 1, sector: "Fintech", px: 112.6, iv: 9.2, close: 52, size: 720_000, skew: "hypeUp" },
-  { sym: "TSLA", co: "Tesla", emoji: "🚗", grad: 2, sector: "Autos", px: 340.1, iv: 7.8, close: 145, size: 1_120_000, skew: "binary" },
-  { sym: "AMD", co: "Advanced Micro Devices", emoji: "🔴", grad: 2, sector: "Semis", px: 168.9, iv: 8.1, close: 320, size: 430_000, skew: "balanced" },
-  { sym: "COIN", co: "Coinbase", emoji: "🟦", grad: 1, sector: "Crypto", px: 305.2, iv: 11.4, close: -10, size: 560_000, skew: "binary" },
-  { sym: "AMZN", co: "Amazon", emoji: "📦", grad: 3, sector: "Retail", px: 218.7, iv: 6.9, close: -258, size: 880_000, skew: "hypeUp" },
-  { sym: "PLTR", co: "Palantir", emoji: "🔮", grad: 4, sector: "Software", px: 62.3, iv: 12.6, close: 1500, size: 260_000, skew: "hypeUp" },
-  { sym: "META", co: "Meta Platforms", emoji: "♾️", grad: 4, sector: "Internet", px: 745.8, iv: 6.4, close: 2880, size: 300_000, skew: "balanced" },
-  { sym: "AAPL", co: "Apple", emoji: "🍎", grad: 2, sector: "Hardware", px: 232.5, iv: 4.8, close: 4320, size: 210_000, skew: "balanced" },
-  // Settled — visible outcomes.
-  { sym: "MSFT", co: "Microsoft", emoji: "🪟", grad: 1, sector: "Software", px: 505.3, iv: 5.2, close: -300, size: 1_310_000, skew: "hypeUp", move: 7.2 },
-  { sym: "NFLX", co: "Netflix", emoji: "🎬", grad: 2, sector: "Streaming", px: 1180.4, iv: 9.7, close: -1500, size: 1_620_000, skew: "hypeUp", move: 13.4 },
-  { sym: "GOOGL", co: "Alphabet", emoji: "🔎", grad: 5, sector: "Internet", px: 205.1, iv: 5.6, close: -1700, size: 910_000, skew: "downLean", move: -4.1 },
-  { sym: "CRM", co: "Salesforce", emoji: "☁️", grad: 1, sector: "Software", px: 265.9, iv: 6.1, close: -1600, size: 410_000, skew: "balanced", move: -1.2 },
+type Tk = { sym: string; co: string; emoji: string; grad: number; px: number };
+const TICKERS: Tk[] = [
+  { sym: "NVDA", co: "NVIDIA", emoji: "🟩", grad: 0, px: 178.4 },
+  { sym: "TSLA", co: "Tesla", emoji: "🚗", grad: 2, px: 340.1 },
+  { sym: "AAPL", co: "Apple", emoji: "🍎", grad: 2, px: 232.5 },
+  { sym: "HOOD", co: "Robinhood", emoji: "🪶", grad: 1, px: 112.6 },
+  { sym: "COIN", co: "Coinbase", emoji: "🟦", grad: 1, px: 305.2 },
+  { sym: "AMD", co: "AMD", emoji: "🔴", grad: 2, px: 168.9 },
+  { sym: "META", co: "Meta", emoji: "♾️", grad: 4, px: 745.8 },
+  { sym: "AMZN", co: "Amazon", emoji: "📦", grad: 3, px: 218.7 },
+  { sym: "MSFT", co: "Microsoft", emoji: "🪟", grad: 1, px: 505.3 },
+  { sym: "GOOGL", co: "Alphabet", emoji: "🔎", grad: 5, px: 205.1 },
+  { sym: "PLTR", co: "Palantir", emoji: "🔮", grad: 4, px: 62.3 },
+  { sym: "NFLX", co: "Netflix", emoji: "🎬", grad: 2, px: 1180.4 },
+  { sym: "SOFI", co: "SoFi", emoji: "💸", grad: 5, px: 24.8 },
+  { sym: "MARA", co: "MARA Holdings", emoji: "⛏️", grad: 3, px: 21.4 },
 ];
+const tkBy = (sym: string) => TICKERS.find((t) => t.sym === sym)!;
 
-function seedPools(now: number): Pool[] {
-  return SEED.map((s, i) => {
-    const closeTime = now + s.close * MIN;
-    const printTime = closeTime + 20 * MIN;
-    const settleTime = printTime + 4 * HOUR;
-    const stakes = buildStakes(s.size, SKEWS[s.skew]);
-    const pool: Pool = {
-      id: `${s.sym.toLowerCase()}_${i}`,
-      symbol: s.sym,
-      company: s.co,
-      emoji: s.emoji,
-      grad: s.grad,
-      sector: s.sector,
-      prevClose: s.px,
-      impliedVol: s.iv,
-      closeTime,
-      printTime,
-      settleTime,
-      rakeBps: RAKE_BPS,
-      stakes,
-      bets: [],
-    };
-    pool.bets = seedBets(pool, 6 + Math.floor(Math.random() * 6), now);
-    if (s.move !== undefined) {
-      pool.actualMove = s.move;
-      pool.winner = bucketForMove(s.move).id;
-    }
-    return pool;
+function seedStakes(total: number, buckets: Bucket[], center: number, spread: number): Stakes {
+  // Weight buckets by a bell curve centered on `center` (bucket index).
+  const stakes: Stakes = {};
+  let sum = 0;
+  const w = buckets.map((_, i) => {
+    const x = (i - center) / spread;
+    return Math.exp(-0.5 * x * x) + 0.05;
   });
+  w.forEach((x) => (sum += x));
+  buckets.forEach((b, i) => {
+    stakes[b.id] = Math.round((total * w[i]) / sum * (0.85 + Math.random() * 0.3));
+  });
+  return stakes;
+}
+
+function weightedBucket(stakes: Stakes, buckets: Bucket[]): string {
+  const total = poolTotal(stakes) || 1;
+  let r = Math.random() * total;
+  for (const b of buckets) {
+    r -= stakes[b.id] ?? 0;
+    if (r <= 0) return b.id;
+  }
+  return buckets[0].id;
+}
+
+function seedBets(m: Market, count: number, now: number): Bet[] {
+  const out: Bet[] = [];
+  for (let i = 0; i < count; i++) {
+    out.push({
+      id: uid(),
+      marketId: m.id,
+      bucket: weightedBucket(m.stakes, m.buckets),
+      bettor: botAddr(),
+      amount: Math.round(40 + Math.random() * 2600),
+      ts: now - ((Math.random() * 25 * MIN) | 0),
+    });
+  }
+  return out.sort((a, b) => b.ts - a.ts);
+}
+
+let roundSeq = 1;
+
+function makeRound(now: number, closeInMin: number): Market {
+  const t = TICKERS[(Math.random() * TICKERS.length) | 0];
+  const dur = Math.random() < 0.5 ? 15 : 30;
+  const closeTime = now + closeInMin * MIN;
+  const total = 8_000 + Math.random() * 60_000;
+  const m: Market = {
+    id: `round_${roundSeq++}_${now.toString(36)}`,
+    kind: "round",
+    symbol: t.sym,
+    name: `${dur}-min round`,
+    emoji: t.emoji,
+    grad: t.grad,
+    title: `${t.sym} — up, flat, or down this round?`,
+    metricLabel: "token move over the round",
+    refLabel: `${dur}-minute pari-mutuel · 1% rake · token @ $${t.px.toFixed(2)}`,
+    buckets: ROUND_BUCKETS,
+    closeTime,
+    settleTime: closeTime + MIN,
+    rakeBps: RAKE.round,
+    stakes: {},
+    bets: [],
+  };
+  m.stakes = seedStakes(total, ROUND_BUCKETS, 1, 1.1);
+  m.bets = seedBets(m, 3 + ((Math.random() * 5) | 0), now);
+  return m;
+}
+
+function baseMarket(
+  now: number,
+  kind: MarketKind,
+  tk: Tk,
+  closeOffMin: number,
+  settleOffMin: number,
+  total: number,
+  buckets: Bucket[],
+  center: number,
+  spread: number,
+  fields: Partial<Market>
+): Market {
+  const closeTime = now + closeOffMin * MIN;
+  const m: Market = {
+    id: `${kind}_${tk.sym.toLowerCase()}_${(idc++).toString(36)}`,
+    kind,
+    symbol: tk.sym,
+    name: tk.co,
+    emoji: tk.emoji,
+    grad: tk.grad,
+    title: "",
+    metricLabel: "",
+    refLabel: "",
+    buckets,
+    closeTime,
+    settleTime: now + settleOffMin * MIN,
+    rakeBps: RAKE[kind],
+    stakes: seedStakes(total, buckets, center, spread),
+    bets: [],
+    ...fields,
+  };
+  m.bets = seedBets(m, 5 + ((Math.random() * 6) | 0), now);
+  return m;
+}
+
+function seedMarkets(now: number): Market[] {
+  const out: Market[] = [];
+
+  // ── THE GAP — the headline anchor. Overnight token drift vs the 9:30 open.
+  const gapSpecs: [string, number, number, number, boolean, number?][] = [
+    // sym, drift% (token moved overnight), closeInMin, pool, headline, presetGap?
+    ["NVDA", 1.8, 7, 640_000, true],
+    ["TSLA", -2.3, 7, 410_000, false],
+    ["HOOD", 0.9, 52, 180_000, false],
+    ["COIN", 3.1, 52, 150_000, false],
+    ["AAPL", -0.4, 112, 120_000, false],
+    ["MSFT", 0.6, 112, 96_000, false],
+  ];
+  for (const [sym, drift, closeIn, pool, headline] of gapSpecs) {
+    const t = tkBy(sym);
+    const overnight = t.px * (1 + drift / 100);
+    const center = drift > 0 ? 4.2 : drift < -1 ? 1.6 : 3;
+    out.push(
+      baseMarket(now, "gap", t, closeIn, closeIn + 1, pool, GAP_BUCKETS, center, 1.3, {
+        title: `Where does ${sym} open vs the overnight token?`,
+        metricLabel: "open vs 3am token (%)",
+        refLabel: `token @ 3am $${overnight.toFixed(2)} · prev close $${t.px.toFixed(2)} · overnight ${drift >= 0 ? "+" : ""}${drift.toFixed(1)}%`,
+        headline,
+      })
+    );
+  }
+  // A settled gap from this morning, for the record.
+  {
+    const t = tkBy("AMD");
+    const gm = baseMarket(now, "gap", t, -120, -119, 220_000, GAP_BUCKETS, 4, 1.3, {
+      title: `Where did AMD open vs the overnight token?`,
+      metricLabel: "open vs 3am token (%)",
+      refLabel: `token @ 3am $${(t.px * 1.012).toFixed(2)} · prev close $${t.px.toFixed(2)}`,
+    });
+    gm.metric = 1.4;
+    gm.winner = bucketFor(1.4, GAP_BUCKETS).id;
+    out.push(gm);
+  }
+
+  // ── THE CLOSE — direction/range on the cash session, settles 4:00.
+  for (const [sym, closeIn, pool] of [
+    ["NVDA", 380, 320_000],
+    ["TSLA", 380, 240_000],
+    ["SOFI", 380, 70_000],
+  ] as [string, number, number][]) {
+    const t = tkBy(sym);
+    out.push(
+      baseMarket(now, "close", t, closeIn, closeIn + 1, pool, CLOSE_BUCKETS, 3, 1.4, {
+        title: `${sym} — direction and range into the 4:00 close`,
+        metricLabel: "session move (%)",
+        refLabel: `prev close $${t.px.toFixed(2)} · settles 4:00 PM ET`,
+      })
+    );
+  }
+
+  // ── ROUNDS — always something closing (staggered short windows).
+  out.push(makeRound(now, 0.6));
+  out.push(makeRound(now, 4));
+  out.push(makeRound(now, 11));
+  out.push(makeRound(now, 23));
+
+  // ── BREADTH — how many of the top 20 close green. Settles 4:00.
+  {
+    const t: Tk = { sym: "TOP20", co: "Top-20 breadth", emoji: "📊", grad: 1, px: 0 };
+    out.push(
+      baseMarket(now, "breadth", t, 380, 381, 130_000, BREADTH_BUCKETS, 2, 1.2, {
+        title: "How many of the top 20 close green today?",
+        metricLabel: "tickers closing green (0–20)",
+        refLabel: "daily breadth round · 1.5% rake · settles 4:00 PM ET",
+      })
+    );
+  }
+
+  // ── MACRO — one-off at a fixed minute. Custom buckets vs consensus.
+  {
+    const macroBuckets: Bucket[] = [
+      { id: "m0", label: "≤ 2.6% (cool)", short: "≤2.6", lo: -Infinity, hi: 2.65, dir: "up" },
+      { id: "m1", label: "2.7% in-line", short: "2.7", lo: 2.65, hi: 2.75, dir: "flat" },
+      { id: "m2", label: "2.8%", short: "2.8", lo: 2.75, hi: 2.85, dir: "flat" },
+      { id: "m3", label: "2.9%", short: "2.9", lo: 2.85, hi: 2.95, dir: "down" },
+      { id: "m4", label: "≥ 3.0% (hot)", short: "≥3.0", lo: 2.95, hi: Infinity, dir: "down" },
+    ];
+    const t: Tk = { sym: "CPI", co: "CPI · YoY", emoji: "🏛️", grad: 3, px: 0 };
+    out.push(
+      baseMarket(now, "macro", t, 1000, 1001, 480_000, macroBuckets, 1.5, 1.1, {
+        title: "CPI — what prints for YoY headline?",
+        metricLabel: "CPI YoY (%)",
+        refLabel: "consensus 2.7% · drops 8:30 AM ET · high-attention one-off",
+      })
+    );
+  }
+
+  // ── EARNINGS — seasonal marquee. A couple upcoming + one settled.
+  {
+    const t = tkBy("NVDA");
+    out.push(
+      baseMarket(now, "earnings", t, 2880, 3120, 1_940_000, EARN_BUCKETS, 4.2, 1.5, {
+        title: "NVDA earnings — the post-print move",
+        metricLabel: "post-earnings move (%)",
+        refLabel: "prints Wed 4:20 PM ET · seasonal marquee · prev close $178.40",
+      })
+    );
+    const nf = tkBy("NFLX");
+    const em = baseMarket(now, "earnings", nf, -1500, -1260, 1_620_000, EARN_BUCKETS, 4.5, 1.5, {
+      title: "NFLX earnings — the post-print move",
+      metricLabel: "post-earnings move (%)",
+      refLabel: "printed after the close · prev close $1180.40",
+    });
+    em.metric = 13.4;
+    em.winner = bucketFor(13.4, EARN_BUCKETS).id;
+    out.push(em);
+  }
+
+  return out;
 }
 
 function emptyState(): State {
-  return {
-    pools: [],
-    user: { connected: false, address: "", balance: 0, positions: {}, history: [] },
-    now: 0,
-  };
+  return { markets: [], user: { connected: false, address: "", balance: 0, positions: {} }, now: 0 };
 }
 
 type Action =
   | { type: "HYDRATE"; state: State }
   | { type: "CONNECT" }
   | { type: "DISCONNECT" }
-  | { type: "BET"; poolId: string; bucket: string; amount: number }
+  | { type: "BET"; marketId: string; bucket: string; amount: number }
   | { type: "TICK"; now: number };
 
-const MAX_BETS = 40;
+const MAX_BETS = 32;
+
+/** Draw the realized settling metric for a market kind. */
+function drawMetric(m: Market): number {
+  switch (m.kind) {
+    case "gap":
+      return +gaussian(0.9).toFixed(2);
+    case "close":
+      return +gaussian(1.8).toFixed(2);
+    case "round":
+      return +gaussian(0.45).toFixed(2);
+    case "breadth":
+      return Math.max(0, Math.min(20, Math.round(10 + gaussian(4))));
+    case "macro":
+      return +(2.7 + gaussian(0.12)).toFixed(1);
+    case "earnings":
+      return +gaussian(6).toFixed(2);
+  }
+}
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -241,48 +391,38 @@ function reducer(state: State, action: Action): State {
     case "CONNECT":
       return {
         ...state,
-        user: {
-          connected: true,
-          address: botAddr(),
-          balance: 10_000,
-          positions: {},
-          history: [],
-        },
+        user: { connected: true, address: botAddr(), balance: 10_000, positions: {} },
       };
 
     case "DISCONNECT":
-      return {
-        ...state,
-        user: { connected: false, address: "", balance: 0, positions: {}, history: [] },
-      };
+      return { ...state, user: { connected: false, address: "", balance: 0, positions: {} } };
 
     case "BET": {
       const { user } = state;
-      const pool = state.pools.find((p) => p.id === action.poolId);
-      if (!pool || !user.connected) return state;
-      if (statusOf(pool, state.now) !== "open") return state;
+      const m = state.markets.find((x) => x.id === action.marketId);
+      if (!m || !user.connected || statusOf(m, state.now) !== "open") return state;
       const amount = Math.min(action.amount, user.balance);
       if (amount <= 0) return state;
       const bet: Bet = {
         id: uid(),
-        poolId: pool.id,
+        marketId: m.id,
         bucket: action.bucket,
         bettor: user.address,
         amount,
         ts: state.now,
       };
-      const stakes = { ...pool.stakes, [action.bucket]: (pool.stakes[action.bucket] ?? 0) + amount };
-      const pos = state.user.positions[pool.id] ?? { staked: {} };
+      const stakes = { ...m.stakes, [action.bucket]: (m.stakes[action.bucket] ?? 0) + amount };
+      const pos = user.positions[m.id] ?? { staked: {} };
       const staked = { ...pos.staked, [action.bucket]: (pos.staked[action.bucket] ?? 0) + amount };
       return {
         ...state,
-        pools: state.pools.map((p) =>
-          p.id === pool.id ? { ...p, stakes, bets: [bet, ...p.bets].slice(0, MAX_BETS) } : p
+        markets: state.markets.map((x) =>
+          x.id === m.id ? { ...x, stakes, bets: [bet, ...x.bets].slice(0, MAX_BETS) } : x
         ),
         user: {
           ...user,
           balance: user.balance - amount,
-          positions: { ...user.positions, [pool.id]: { staked } },
+          positions: { ...user.positions, [m.id]: { staked } },
         },
       };
     }
@@ -290,33 +430,38 @@ function reducer(state: State, action: Action): State {
     case "TICK": {
       const now = action.now;
       let user = state.user;
-      const pools = state.pools.map((pool) => {
-        const wasSettled = !!pool.winner;
-        const status = statusOf(pool, now);
+      const spawned: Market[] = [];
+      let markets = state.markets.map((m) => {
+        const status = statusOf(m, now);
 
-        // Auto-settle a pool whose window has elapsed.
-        if (status === "settled" && !wasSettled) {
-          const move = +gaussian(pool.impliedVol * 0.75).toFixed(2);
-          const winner = bucketForMove(move).id;
-          const settled = { ...pool, actualMove: move, winner };
+        if (status === "settled" && !m.winner) {
+          const metric = drawMetric(m);
+          const winner = bucketFor(metric, m.buckets).id;
+          const settled = { ...m, metric, winner };
           user = creditSettlement(user, settled);
+          // Rounds recycle so something is always closing.
+          if (m.kind === "round") spawned.push(makeRound(now, 12 + Math.random() * 14));
           return settled;
         }
 
-        // Bots trickle bets into open pools.
-        if (status === "open" && Math.random() < 0.55) {
-          const bucket = weightedBucket(pool.stakes);
-          const amount = Math.round(50 + Math.random() * 3500);
-          const bet: Bet = { id: uid(), poolId: pool.id, bucket, bettor: botAddr(), amount, ts: now };
+        if (status === "open" && Math.random() < (m.kind === "round" ? 0.7 : 0.45)) {
+          const bucket = weightedBucket(m.stakes, m.buckets);
+          const amount = Math.round(40 + Math.random() * (m.kind === "round" ? 1200 : 3200));
+          const bet: Bet = { id: uid(), marketId: m.id, bucket, bettor: botAddr(), amount, ts: now };
           return {
-            ...pool,
-            stakes: { ...pool.stakes, [bucket]: (pool.stakes[bucket] ?? 0) + amount },
-            bets: [bet, ...pool.bets].slice(0, MAX_BETS),
+            ...m,
+            stakes: { ...m.stakes, [bucket]: (m.stakes[bucket] ?? 0) + amount },
+            bets: [bet, ...m.bets].slice(0, MAX_BETS),
           };
         }
-        return pool;
+        return m;
       });
-      return { ...state, now, pools, user };
+      // Retire fully-settled rounds older than a bit, keep the board tidy.
+      markets = markets.filter(
+        (m) => !(m.kind === "round" && m.winner && now - m.settleTime > 6 * MIN)
+      );
+      if (spawned.length) markets = [...markets, ...spawned];
+      return { ...state, now, markets, user };
     }
 
     default:
@@ -324,31 +469,19 @@ function reducer(state: State, action: Action): State {
   }
 }
 
-/** Credit a user's winning positions when a pool settles; record history. */
-function creditSettlement(user: User, pool: Pool): User {
-  const pos = user.positions[pool.id];
-  if (!pos || !pool.winner) return user;
+function creditSettlement(user: User, m: Market): User {
+  const pos = user.positions[m.id];
+  if (!pos || !m.winner) return user;
   let balance = user.balance;
-  const history = [...user.history];
   for (const [bucket, staked] of Object.entries(pos.staked)) {
-    const payout = settlePayout(pool.stakes, bucket, staked, pool.winner, pool.rakeBps);
-    balance += payout;
-    history.unshift({
-      poolId: pool.id,
-      symbol: pool.symbol,
-      bucket,
-      staked,
-      payout,
-      won: bucket === pool.winner,
-      ts: pool.settleTime,
-    });
+    balance += settlePayout(m.stakes, bucket, staked, m.winner, m.rakeBps);
   }
   const positions = { ...user.positions };
-  delete positions[pool.id];
-  return { ...user, balance, positions, history };
+  delete positions[m.id];
+  return { ...user, balance, positions };
 }
 
-const KEY = "print.v1";
+const KEY = "print.v2";
 
 type Ctx = { state: State; dispatch: React.Dispatch<Action>; ready: boolean };
 const StoreContext = createContext<Ctx | null>(null);
@@ -368,7 +501,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     } catch {
       next = null;
     }
-    dispatch({ type: "HYDRATE", state: next ?? { pools: seedPools(now), user: emptyState().user, now } });
+    dispatch({ type: "HYDRATE", state: next ?? { markets: seedMarkets(now), user: emptyState().user, now } });
   }, []);
 
   useEffect(() => {
@@ -383,8 +516,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const reduce =
       typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const period = reduce ? 4000 : 1500;
-    const t = setInterval(() => dispatch({ type: "TICK", now: Date.now() }), period);
+    const t = setInterval(() => dispatch({ type: "TICK", now: Date.now() }), reduce ? 4000 : 1400);
     return () => clearInterval(t);
   }, []);
 
@@ -397,5 +529,3 @@ export function useStore(): Ctx {
   if (!ctx) throw new Error("useStore must be used within StoreProvider");
   return ctx;
 }
-
-export { BUCKETS };

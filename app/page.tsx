@@ -5,7 +5,7 @@ import { StoreProvider, useStore } from "@/lib/store";
 import { Nav } from "@/components/Nav";
 import { Ticker } from "@/components/Ticker";
 import { Home } from "@/components/Home";
-import { PoolDetail } from "@/components/PoolDetail";
+import { MarketDetail } from "@/components/MarketDetail";
 import { Footer } from "@/components/Footer";
 import { PrintMark } from "@/components/icons";
 
@@ -28,7 +28,7 @@ function App() {
             <p className="text-sm">loading the board…</p>
           </div>
         ) : selected ? (
-          <PoolDetail poolId={selected} onBack={() => setSelected(null)} />
+          <MarketDetail marketId={selected} onBack={() => setSelected(null)} />
         ) : (
           <Home onOpen={(id) => setSelected(id)} />
         )}

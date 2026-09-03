@@ -24,8 +24,11 @@ export function Nav({ onHome }: { onHome: () => void }) {
           <button onClick={onHome} className="transition-colors hover:text-foreground">
             Markets
           </button>
-          <a href="#calendar" className="transition-colors hover:text-foreground">
-            Calendar
+          <a href="#gap" className="transition-colors hover:text-foreground">
+            The Gap
+          </a>
+          <a href="#rounds" className="transition-colors hover:text-foreground">
+            Rounds
           </a>
           <a href="#how" className="transition-colors hover:text-foreground">
             How it works

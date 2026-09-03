@@ -1,6 +1,7 @@
-import type { SVGProps } from "react";
+import type { SVGProps, ReactElement } from "react";
 
 type P = SVGProps<SVGSVGElement>;
+export type IconType = (props: P) => ReactElement;
 
 const base: P = {
   width: 18,
@@ -32,6 +33,17 @@ export function PrintMark(props: P) {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+    </svg>
+  );
+}
+
+/** The Gap — the seam between the overnight token level and the 9:30 open. */
+export function GapIcon(props: P) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M3 15h7" opacity="0.55" />
+      <path d="M14 9h7" />
+      <path d="M12 20V4M12 4l-3 3M12 4l3 3" />
     </svg>
   );
 }

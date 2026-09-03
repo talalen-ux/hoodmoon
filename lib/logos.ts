@@ -9,7 +9,11 @@
  * (ticker initials on the brand color) — a finance-app placeholder, not a
  * reproduction of any logo — whenever no real logo file is registered.
  */
-export const LOGOS: Record<string, string> = {};
+export const LOGOS: Record<string, string> = {
+  TSLA: "/logos/TSLA.png",
+  MU: "/logos/MU.png",
+  NVDA: "/logos/NVDA.png",
+};
 
 export const BRANDS: Record<string, string> = {
   NVDA: "#76b900",

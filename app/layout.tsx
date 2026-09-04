@@ -8,33 +8,34 @@ const siteUrl = "https://print.markets";
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "Print — trade the earnings reaction, on-chain",
+    default: "Print — trade the gap, on-chain",
     template: "%s — Print",
   },
   description:
-    "Print runs pari-mutuel pools on post-earnings moves, settled on-chain the instant the print lands. Pick a bucket — ±3%, ±6%, ±10% — before the pool closes. No LPs, no market makers: bettors are counterparty to each other. Built on Robinhood Chain, settled off Chainlink Data Streams.",
+    "The token trades all night; the stock doesn't. Print runs pari-mutuel pools on the daily gap — where the real market opens at 9:30 versus where the token drifted overnight — plus the close, rotating rounds, and earnings as the seasonal peak. No LPs, no market makers: bettors are counterparty to each other. Built on Robinhood Chain, settled off Chainlink Data Streams.",
   keywords: [
     "Print",
-    "earnings",
+    "the gap",
     "prediction market",
     "pari-mutuel",
     "Robinhood Chain",
     "Chainlink Data Streams",
     "on-chain betting",
-    "NVDA earnings",
+    "overnight gap",
+    "earnings",
   ],
   openGraph: {
-    title: "Print — trade the earnings reaction, on-chain",
+    title: "Print — trade the gap, on-chain",
     description:
-      "Pari-mutuel pools on the post-earnings move, settled on-chain the instant the print lands. Built on Robinhood Chain.",
+      "Pari-mutuel markets on the seam between a 24/7 token and the 9:30 open — the gap, the close, and rounds all day. Built on Robinhood Chain.",
     url: siteUrl,
     siteName: "Print",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Print — trade the earnings reaction, on-chain",
-    description: "Pari-mutuel earnings-print markets on Robinhood Chain.",
+    title: "Print — trade the gap, on-chain",
+    description: "Pari-mutuel markets on the daily gap, settled on Robinhood Chain.",
   },
   robots: { index: true, follow: true },
 };

@@ -42,7 +42,13 @@ export function TickerAvatar({
         height={size}
         onError={() => setBroken(true)}
         className="shrink-0 object-contain"
-        style={{ width: size, height: size, borderRadius: radius, background: "#fff" }}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: radius,
+          background: "#fff",
+          boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)",
+        }}
       />
     );
   }

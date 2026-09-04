@@ -1,8 +1,8 @@
 {
-  "name": "print",
+  "name": "mm",
   "version": "1.0.0",
   "private": true,
-  "description": "Print — pari-mutuel prediction markets on the post-earnings move, settled on-chain. Built on Robinhood Chain, settled off Chainlink Data Streams.",
+  "description": "mm \u2014 the market maker for mispriced equities on Robinhood Chain. Watches every pool where tokenized stocks trade, sells into the ones that run far above the real share price, and pays the profit to holders every 15 minutes, on-chain.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

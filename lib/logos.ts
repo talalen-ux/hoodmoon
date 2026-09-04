@@ -1,5 +1,5 @@
 /**
- * Ticker identity for avatars.
+ * Ticker identity for pool avatars.
  *
  * LOGOS: real logo files. Drop an image into `public/logos/` (e.g. NVDA.svg)
  * and map it here; the avatar renders it in place of the tile. Kept as an
@@ -31,4 +31,5 @@ export const BRANDS: Record<string, string> = {
   SOFI: "#00a0df",
   MARA: "#ea580c",
   MU: "#004990",
+  RIVN: "#0e5f5c",
 };

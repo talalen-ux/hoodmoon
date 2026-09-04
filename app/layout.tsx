@@ -3,44 +3,47 @@ import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import "./globals.css";
 
-const siteUrl = "https://print.markets";
+const siteUrl = "https://mm.markets";
+
+const description =
+  "mm watches every pool where tokenized stocks trade on Robinhood Chain and marks each one against the real share price. When a pool trades far above the stock, mm sells into it and hedges at the reference, booking the edge on the spot. The profit goes to holders every 15 minutes, on-chain.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "Print — trade the earnings reaction, on-chain",
-    template: "%s — Print",
+    default: "mm — the market maker for mispriced equities",
+    template: "%s — mm",
   },
-  description:
-    "Print runs pari-mutuel pools on post-earnings moves, settled on-chain the instant the print lands. Pick a bucket — ±3%, ±6%, ±10% — before the pool closes. No LPs, no market makers: bettors are counterparty to each other. Built on Robinhood Chain, settled off Chainlink Data Streams.",
+  description,
   keywords: [
-    "Print",
-    "earnings",
-    "prediction market",
-    "pari-mutuel",
+    "mm",
+    "market maker",
+    "tokenized equities",
+    "basis trade",
     "Robinhood Chain",
-    "Chainlink Data Streams",
-    "on-chain betting",
-    "NVDA earnings",
+    "arbitrage",
+    "on-chain distributions",
+    "AMM",
   ],
   openGraph: {
-    title: "Print — trade the earnings reaction, on-chain",
+    title: "mm — the market maker for mispriced equities",
     description:
-      "Pari-mutuel pools on the post-earnings move, settled on-chain the instant the print lands. Built on Robinhood Chain.",
+      "When a pool trades far above the real stock price, mm sells into it. The profit goes to holders every 15 minutes, on-chain.",
     url: siteUrl,
-    siteName: "Print",
+    siteName: "mm",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Print — trade the earnings reaction, on-chain",
-    description: "Pari-mutuel earnings-print markets on Robinhood Chain.",
+    title: "mm — the market maker for mispriced equities",
+    description:
+      "When a pool trades far above the real stock price, mm sells into it. Profit to holders every 15 minutes, on-chain.",
   },
   robots: { index: true, follow: true },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0a120d",
+  themeColor: "#06090c",
   width: "device-width",
   initialScale: 1,
 };

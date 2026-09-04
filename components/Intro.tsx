@@ -1,72 +1,73 @@
 "use client";
 
 import { motion, useReducedMotion } from "framer-motion";
-import { TickerAvatar } from "./primitives";
-import { PrintMark, GapIcon } from "./icons";
+import { TickerAvatar, basisColor } from "./primitives";
+import { MmMark, RadarIcon } from "./icons";
 
-type Card = { sym: string; co: string; px: number; chg: number };
+type Card = { sym: string; token: string; pool: number; ref: number };
 
-// Cinematic deck fanned around the wordmark. Odd count → clean centre.
+/**
+ * The splash makes the argument before the app does: every card is the same
+ * two numbers — what the pool says, what the stock says — and the gap between
+ * them. Odd count so the arc has a clean centre.
+ */
 const CARDS: Card[] = [
-  { sym: "COIN", co: "Coinbase", px: 314.6, chg: 3.1 },
-  { sym: "TSLA", co: "Tesla", px: 332.3, chg: -2.3 },
-  { sym: "MU", co: "Micron", px: 120.1, chg: 1.2 },
-  { sym: "NVDA", co: "NVIDIA", px: 181.61, chg: 1.8 },
-  { sym: "AAPL", co: "Apple", px: 231.6, chg: -0.4 },
-  { sym: "HOOD", co: "Robinhood", px: 113.6, chg: 0.9 },
-  { sym: "NFLX", co: "Netflix", px: 1208.5, chg: 2.4 },
+  { sym: "COIN", token: "tCOIN", pool: 310.55, ref: 305.2 },
+  { sym: "TSLA", token: "tTSLA", pool: 333.63, ref: 340.1 },
+  { sym: "MU", token: "tMU", pool: 121.85, ref: 118.7 },
+  { sym: "NVDA", token: "tNVDA", pool: 182.68, ref: 178.4 },
+  { sym: "AAPL", token: "tAAPL", pool: 231.11, ref: 232.5 },
+  { sym: "HOOD", token: "tHOOD", pool: 116.09, ref: 112.6 },
+  { sym: "MARA", token: "tMARA", pool: 22.6, ref: 21.4 },
 ];
 
-/** Deterministic sparkline path from the symbol (no RNG → SSR-safe). */
-function sparkPath(sym: string, up: boolean, w = 148, h = 40): string {
-  const n = 16;
-  let seed = 0;
-  for (let i = 0; i < sym.length; i++) seed = (seed * 31 + sym.charCodeAt(i)) % 9973;
-  const rnd = () => {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    return (seed % 1000) / 1000;
-  };
-  const pts: number[] = [];
-  let v = 0.5;
-  for (let i = 0; i < n; i++) {
-    v += (rnd() - 0.5) * 0.26 + (up ? 0.03 : -0.03);
-    v = Math.max(0.08, Math.min(0.92, v));
-    pts.push(v);
-  }
-  return pts
-    .map((p, i) => `${i === 0 ? "M" : "L"} ${((i / (n - 1)) * w).toFixed(1)} ${(h - p * h).toFixed(1)}`)
-    .join(" ");
-}
-
 function StockCard({ card }: { card: Card }) {
-  const up = card.chg >= 0;
-  const color = up ? "var(--color-up)" : "var(--color-down)";
+  const b = (card.pool / card.ref - 1) * 10_000;
+  const color = basisColor(b);
+  const rich = b > 0;
   return (
-    <div className="w-44 rounded-2xl border border-white/10 bg-elevated/90 p-3.5 shadow-[0_24px_70px_-24px_rgba(0,0,0,0.9)] backdrop-blur">
+    <div className="w-48 rounded-2xl border border-white/10 bg-elevated/90 p-3.5 shadow-[0_24px_70px_-24px_rgba(0,0,0,0.9)] backdrop-blur">
       <div className="flex items-center gap-2.5">
-        <TickerAvatar emoji="📈" grad={0} symbol={card.sym} size={34} radius={9} />
+        <TickerAvatar symbol={card.sym} size={32} radius={9} />
         <div className="min-w-0 flex-1 leading-tight">
-          <p className="font-mono text-sm font-bold">{card.sym}</p>
-          <p className="truncate text-[10px] text-muted">{card.co}</p>
+          <p className="font-mono text-sm font-bold">{card.token}</p>
+          <p className="truncate text-[10px] text-muted">pool vs. stock</p>
         </div>
       </div>
-      <div className="mt-2.5">
-        <svg viewBox="0 0 148 40" className="h-9 w-full" preserveAspectRatio="none" aria-hidden>
-          <defs>
-            <linearGradient id={`g-${card.sym}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stopColor={color} stopOpacity="0.35" />
-              <stop offset="1" stopColor={color} stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          <path d={`${sparkPath(card.sym, up)} L 148 40 L 0 40 Z`} fill={`url(#g-${card.sym})`} stroke="none" />
-          <path d={sparkPath(card.sym, up)} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
-        </svg>
+
+      <div className="mt-3 space-y-1.5">
+        <div className="flex items-baseline justify-between">
+          <span className="text-[10px] text-muted">pool</span>
+          <span className="font-mono text-sm font-semibold tnum">${card.pool.toFixed(2)}</span>
+        </div>
+        <div className="flex items-baseline justify-between">
+          <span className="text-[10px] text-muted">stock</span>
+          <span className="font-mono text-sm text-muted tnum">${card.ref.toFixed(2)}</span>
+        </div>
       </div>
-      <div className="mt-1.5 flex items-baseline justify-between">
-        <span className="font-mono text-sm font-semibold">${card.px.toFixed(2)}</span>
+
+      {/* The gap, drawn */}
+      <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
+        <div
+          className="h-full rounded-full"
+          style={{
+            width: `${Math.min(100, (Math.abs(b) / 600) * 100)}%`,
+            marginLeft: rich ? "50%" : undefined,
+            marginRight: rich ? undefined : "50%",
+            marginInlineStart: rich ? "50%" : `${Math.max(0, 50 - (Math.abs(b) / 600) * 100)}%`,
+            background: color,
+            boxShadow: `0 0 8px ${color}`,
+          }}
+        />
+      </div>
+
+      <div className="mt-2 flex items-baseline justify-between">
         <span className="font-mono text-xs font-semibold" style={{ color }}>
-          {up ? "▲" : "▼"} {up ? "+" : ""}
-          {card.chg.toFixed(1)}%
+          {b > 0 ? "+" : ""}
+          {Math.round(b)} bps
+        </span>
+        <span className="text-[10px] uppercase tracking-wide" style={{ color }}>
+          {b > 150 ? "sell it" : b < -150 ? "buy it" : "fair"}
         </span>
       </div>
     </div>
@@ -82,22 +83,18 @@ export function Intro({ onEnter }: { onEnter: () => void }) {
 
   return (
     <div className="fixed inset-0 z-[80] overflow-hidden bg-bg">
-      {/* Ambient cinematic light */}
+      {/* Ambient light */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            "radial-gradient(65% 55% at 50% 40%, rgba(39,238,68,0.12), transparent 70%), radial-gradient(45% 45% at 50% 108%, rgba(36,59,46,0.7), transparent 70%)",
+            "radial-gradient(65% 55% at 50% 40%, rgba(0,229,154,0.12), transparent 70%), radial-gradient(45% 45% at 50% 108%, rgba(255,166,46,0.10), transparent 70%)",
         }}
       />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-[0.05]"
-        style={{ background: "radial-gradient(circle, #fff 1px, transparent 1px)", backgroundSize: "42px 42px" }}
-      />
+      <div aria-hidden className="pointer-events-none absolute inset-0 grid-bg opacity-60" />
 
-      {/* Fanned arc of stock cards, gently swaying in 3D */}
+      {/* Fanned arc of pools, gently swaying in 3D */}
       <div className="absolute inset-0 flex items-center justify-center" style={{ perspective: 1600 }}>
         <motion.div
           className="relative scale-[0.46] sm:scale-75 lg:scale-100"
@@ -117,7 +114,9 @@ export function Intro({ onEnter }: { onEnter: () => void }) {
             const angle = (i - mid) * step;
             const rad = (angle * Math.PI) / 180;
             const x = Math.sin(rad) * R;
-            const y = (1 - Math.cos(rad)) * R; // dome: centre highest, edges lower
+            // Dome: centre highest, edges lower. Lifted so the fan crowns the
+            // wordmark instead of colliding with the sentence underneath it.
+            const y = (1 - Math.cos(rad)) * R - 235;
             const depth = -Math.abs(i - mid) * 60; // outer cards pushed back
             return (
               // Outer holds the fan placement; inner motion bobs (no transform clash).
@@ -143,12 +142,18 @@ export function Intro({ onEnter }: { onEnter: () => void }) {
       {/* Centre spotlight so the arc recedes behind the wordmark */}
       <div
         aria-hidden
-        className="pointer-events-none absolute left-1/2 top-1/2 h-[620px] w-[620px] -translate-x-1/2 -translate-y-1/2 rounded-full"
-        style={{ background: "radial-gradient(circle, rgba(7,9,13,0.97) 32%, rgba(7,9,13,0.6) 55%, transparent 74%)" }}
+        className="pointer-events-none absolute left-1/2 top-1/2 h-[760px] w-[760px] -translate-x-1/2 -translate-y-1/2 rounded-full"
+        style={{ background: "radial-gradient(circle, rgba(6,9,12,0.96) 30%, rgba(6,9,12,0.72) 52%, transparent 76%)" }}
+      />
+      {/* Floor: the type below the wordmark always lands on clean ground. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-[46%]"
+        style={{ background: "linear-gradient(to top, #06090c 42%, rgba(6,9,12,0.86) 68%, transparent)" }}
       />
 
       {/* Center hero */}
-      <div className="relative z-10 flex h-full flex-col items-center justify-center px-6 text-center">
+      <div className="relative z-10 flex h-full flex-col items-center justify-center px-6 pt-40 text-center sm:pt-48">
         <motion.div
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
@@ -156,18 +161,21 @@ export function Intro({ onEnter }: { onEnter: () => void }) {
           className="flex flex-col items-center"
         >
           <div className="flex items-center gap-2 rounded-full border border-accent/25 bg-accent/10 px-3 py-1 text-xs font-medium text-accent backdrop-blur">
-            <GapIcon width={13} height={13} /> the daily gap · Robinhood Chain
+            <RadarIcon width={13} height={13} /> the basis desk · Robinhood Chain
           </div>
           <div className="mt-6 flex items-center gap-3">
-            <PrintMark width={44} height={44} className="text-foreground" />
-            <span className="text-5xl font-bold tracking-tight sm:text-6xl">Print</span>
+            <MmMark width={46} height={46} className="text-foreground" />
+            <span className="text-5xl font-bold lowercase tracking-tight sm:text-6xl">mm</span>
           </div>
-          <h2 className="mt-4 max-w-md text-2xl font-semibold leading-tight text-foreground sm:text-3xl">
-            Trade the{" "}
-            <span className="bg-gradient-to-r from-accent to-accent-dim bg-clip-text text-transparent">gap</span>.
+          <h2 className="mt-4 max-w-lg text-2xl font-semibold leading-tight text-foreground sm:text-3xl">
+            When a pool trades{" "}
+            <span className="bg-gradient-to-r from-rich to-rich-hot bg-clip-text text-transparent">
+              above the stock
+            </span>
+            , mm sells into it.
           </h2>
           <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted">
-            Pari-mutuel markets on the seam between a 24/7 token and the 9:30 open.
+            The profit goes to holders every 15 minutes, on-chain.
           </p>
 
           <motion.button
@@ -175,15 +183,19 @@ export function Intro({ onEnter }: { onEnter: () => void }) {
             onClick={onEnter}
             whileHover={{ scale: 1.04 }}
             whileTap={{ scale: 0.97 }}
-            className="mt-9 rounded-full bg-accent px-10 py-3.5 text-sm font-semibold text-black shadow-[0_0_40px_-6px_rgba(39,238,68,0.6)] transition-shadow hover:shadow-[0_0_64px_-4px_rgba(39,238,68,0.85)]"
+            className="mt-9 rounded-full bg-accent px-10 py-3.5 text-sm font-semibold text-black shadow-[0_0_40px_-6px_rgba(0,229,154,0.6)] transition-shadow hover:shadow-[0_0_64px_-4px_rgba(0,229,154,0.85)]"
           >
-            Enter the floor →
+            Open the book →
           </motion.button>
         </motion.div>
       </div>
 
       {/* Vignette */}
-      <div aria-hidden className="pointer-events-none absolute inset-0" style={{ boxShadow: "inset 0 0 220px 50px rgba(4,8,6,0.92)" }} />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{ boxShadow: "inset 0 0 220px 50px rgba(3,5,7,0.92)" }}
+      />
     </div>
   );
 }

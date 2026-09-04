@@ -1,33 +1,22 @@
 "use client";
 
 import { useMemo } from "react";
-import { useStore, statusOf } from "@/lib/store";
-import { poolTotal } from "@/lib/parimutuel";
-import { usd, pct } from "@/lib/format";
+import { useStore, poolBasis } from "@/lib/store";
+import { bps } from "@/lib/format";
+import { basisColor } from "./primitives";
+import { stateOf } from "@/lib/basis";
 
-const KIND_SHORT: Record<string, string> = {
-  gap: "GAP",
-  close: "CLOSE",
-  round: "RND",
-  breadth: "BRDTH",
-  macro: "MACRO",
-  earnings: "ERN",
-};
-
-/** Ticker tape across all live markets. */
+/** Basis tape — every watched pool, marked against its stock, left to right. */
 export function Ticker() {
   const { state } = useStore();
 
   const items = useMemo(
     () =>
-      state.markets.map((m) => ({
-        symbol: m.symbol,
-        kind: m.kind,
-        total: poolTotal(m.stakes),
-        status: statusOf(m, state.now),
-        metric: m.metric,
-      })),
-    [state.markets, state.now]
+      state.pools.map((p) => {
+        const b = poolBasis(p);
+        return { token: p.token, b, state: stateOf(b) };
+      }),
+    [state.pools]
   );
 
   if (items.length === 0) return null;
@@ -37,17 +26,18 @@ export function Ticker() {
     <div className="relative overflow-hidden border-b border-edge bg-surface">
       <div className="flex w-max animate-marquee items-center gap-5 py-2">
         {doubled.map((it, i) => (
-          <span key={`${it.symbol}-${i}`} className="flex items-center gap-2 whitespace-nowrap text-xs">
-            <span className="rounded bg-white/[0.05] px-1 py-px font-mono text-[9px] text-muted">
-              {KIND_SHORT[it.kind]}
+          <span key={`${it.token}-${i}`} className="flex items-center gap-2 whitespace-nowrap text-xs">
+            <span className="font-mono font-semibold text-foreground">{it.token}</span>
+            <span className="font-mono tnum" style={{ color: basisColor(it.b) }}>
+              {bps(it.b)}
             </span>
-            <span className="font-mono font-semibold text-foreground">{it.symbol}</span>
-            {it.status === "settled" && it.metric !== undefined ? (
-              <span className={`font-mono ${it.kind === "breadth" || it.kind === "macro" ? "text-muted" : it.metric >= 0 ? "text-up" : "text-down"}`}>
-                {it.kind === "breadth" ? `${it.metric}g` : it.kind === "macro" ? `${it.metric}%` : pct(it.metric)}
+            {it.state !== "fair" && (
+              <span
+                className="rounded px-1 py-px font-mono text-[9px] uppercase"
+                style={{ background: `${basisColor(it.b)}1f`, color: basisColor(it.b) }}
+              >
+                {it.state}
               </span>
-            ) : (
-              <span className="font-mono text-muted/70 tnum">{usd(it.total)}</span>
             )}
             <span className="text-edge-strong">·</span>
           </span>

@@ -1,24 +1,22 @@
 "use client";
 
 /**
- * Client-side simulation of the mm book. Nothing here touches a chain — every
- * pool, fill and distribution is generated locally so the product can be read
- * end to end without a wallet.
+ * Client-side simulation of the tide book. No chain is read or written —
+ * every pool, price, swap, fee and position is generated in the browser.
  *
- * The loop it simulates is the product:
+ * What it simulates is the loop the real product would run on-chain:
  *
- *   1. WATCH   — index every pool where a tokenized equity trades, and mark
- *                each one against the real stock print.
- *   2. FADE    — when a pool runs far above the stock, sell into it; when it
- *                runs far below, buy out of it. Each fill is hedged at the
- *                reference, so the edge is realized on the spot rather than
- *                left to hope for reversion.
- *   3. SWEEP   — on every wall-clock quarter hour the epoch closes and its
- *                realized profit is paid to holders, pro rata.
+ *   1. Pools quote a memecoin against USDC in discrete bins. Price walks;
+ *      volume follows volatility, because that is when people actually trade.
+ *   2. Each swap pays a fee that climbs with volatility, split across the bins
+ *      it crossed in proportion to the liquidity sitting in them.
+ *   3. A position earns only from the bins price is actually in. Out of range
+ *      it earns nothing, which is the single fact retail LPing gets wrong.
+ *   4. Follow positions recenter when price leaves them — and pay for it, in
+ *      swap fees and gas, every time.
  *
- * The interesting hours are the ones the stock market is shut. The pool keeps
- * trading through the night; the reference is frozen at the last print. That
- * is when the basis runs widest and mm does most of its work.
+ * The prices are real-ish starting points for recognisable tokens; everything
+ * after tick zero is invented. Nothing here is market data.
  */
 
 import {
@@ -31,169 +29,246 @@ import {
   type ReactNode,
 } from "react";
 import {
-  BAND_BPS,
-  COOLDOWN_MS,
-  EPOCH_MS,
-  SUPPLY,
-  basisBps,
-  epochIndex,
-  epochStart,
-  poolPrice,
-  priceFade,
-  repriceTo,
-  shareOf,
-  splitEpoch,
-  stateOf,
-  tvlAtRef,
-  type PoolState,
-} from "./basis";
+  binIdAt,
+  binPrice,
+  buildPosition,
+  computePnl,
+  holdingsAt,
+  hiBin,
+  inRange,
+  shapeWeights,
+  totalFeeBps,
+  valueAt,
+  type BinLiquidity,
+  type Holdings,
+  type Shape,
+} from "./bins";
 
-export type Session = "regular" | "pre" | "after" | "overnight" | "weekend";
+// ── Presets ─────────────────────────────────────────────────────────────────
 
-export const SESSION_LABEL: Record<Session, string> = {
-  regular: "regular hours",
-  pre: "pre-market",
-  after: "after hours",
-  overnight: "overnight",
-  weekend: "weekend",
+export type PresetId = "tight" | "follow" | "wide" | "bid";
+
+export type Preset = {
+  id: PresetId;
+  label: string;
+  tagline: string;
+  /** What it actually does, without the marketing. */
+  body: string;
+  /** The honest downside. Every preset has one. */
+  risk: string;
+  shape: Shape;
+  halfWidth: number; // bins either side of the active bin
+  follow: boolean; // recenter when price leaves the range
+  oneSided: boolean; // quote only, placed below price
 };
 
-/** Is the underlying stock actually printing right now? */
-export function refIsLive(s: Session): boolean {
-  return s === "regular" || s === "pre" || s === "after";
-}
+export const PRESETS: Preset[] = [
+  {
+    id: "tight",
+    label: "Tight",
+    tagline: "Earns hardest, breaks first",
+    body: "Liquidity packed into a narrow band around the current price. While price stays put this collects the most fees of any preset, because your share of the active bin is at its largest.",
+    risk: "A move of a few percent takes it out of range, and it stops earning entirely until price comes back. It also takes the most impermanent loss when price runs.",
+    shape: "curve",
+    halfWidth: 8,
+    follow: false,
+    oneSided: false,
+  },
+  {
+    id: "follow",
+    label: "Follow",
+    tagline: "Recenters itself as price moves",
+    body: "A medium band that recenters on the price whenever it drifts out. In practice it is in range almost all the time, so it keeps earning through a trend instead of going idle.",
+    risk: "Each recenter is a real swap: it pays fees and gas, and it locks in the impermanent loss up to that point instead of leaving it to recover. Choppy markets rebalance most and cost most.",
+    shape: "spot",
+    halfWidth: 22,
+    follow: true,
+    oneSided: false,
+  },
+  {
+    id: "wide",
+    label: "Wide",
+    tagline: "Rarely out of range",
+    body: "Spread thin across a broad band. It survives most memecoin candles without needing attention and takes far less impermanent loss than a tight range on the same move.",
+    risk: "Your share of any single bin is small, so fees per dollar are the lowest here. On a token that just chops sideways, a tight range would have earned considerably more.",
+    shape: "spot",
+    halfWidth: 60,
+    follow: false,
+    oneSided: false,
+  },
+  {
+    id: "bid",
+    label: "Bid ladder",
+    tagline: "Get paid to wait for a lower price",
+    body: "USDC only, laddered below the current price. If price never falls that far you simply hold your USDC and earn nothing; if it does, you are filled into the token gradually, and paid fees on the way down.",
+    risk: "Being filled means price fell — you end up holding a token that is worth less than when you set the ladder. This is a way to buy a dip you already wanted, not a way to avoid one.",
+    shape: "bidask",
+    halfWidth: 45,
+    follow: false,
+    oneSided: true,
+  },
+];
+
+export const presetById = (id: PresetId): Preset => PRESETS.find((p) => p.id === id)!;
+
+// ── Safety ──────────────────────────────────────────────────────────────────
 
 /**
- * Session from New York wall-clock time. The whole premise depends on the
- * viewer's timezone being irrelevant — the stock keeps NYSE hours no matter
- * where the pool is being traded from.
+ * Facts about a token that anyone can read off the chain and reproduce.
+ *
+ * Deliberately not a score. A score invites people to read judgement into
+ * what is really just a list of checks, and the checks do not add up to
+ * "safe" — a token can pass every one of these and still go to zero, which
+ * is the normal outcome. The UI states each fact and lets the user decide.
  */
-export function sessionAt(ts: number): Session {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    hour: "2-digit",
-    minute: "2-digit",
-    weekday: "short",
-    hour12: false,
-  }).formatToParts(new Date(ts));
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-  const day = get("weekday");
-  if (day === "Sat" || day === "Sun") return "weekend";
-  const mins = Number(get("hour")) % 24 * 60 + Number(get("minute"));
-  if (mins >= 9 * 60 + 30 && mins < 16 * 60) return "regular";
-  if (mins >= 4 * 60 && mins < 9 * 60 + 30) return "pre";
-  if (mins >= 16 * 60 && mins < 20 * 60) return "after";
-  return "overnight";
+export type Safety = {
+  ownershipRenounced: boolean;
+  liquidityLocked: boolean;
+  lockedPct: number;
+  noTransferTax: boolean;
+  topHolderPct: number; // largest non-pool holder
+  ageDays: number;
+};
+
+export function safetyFlags(s: Safety): { failed: number; total: number } {
+  const checks = [
+    s.ownershipRenounced,
+    s.liquidityLocked,
+    s.noTransferTax,
+    s.topHolderPct < 10,
+    s.ageDays >= 7,
+  ];
+  return { failed: checks.filter((c) => !c).length, total: checks.length };
 }
+
+// ── Pools ───────────────────────────────────────────────────────────────────
 
 export type Pool = {
   id: string;
-  symbol: string; // the underlying: NVDA
-  token: string; // what trades in the pool: tNVDA
-  name: string;
-  venue: string;
-  feeBps: number;
-  rTok: number;
-  rUsd: number;
-  ref: number; // last real print of the stock
-  refOpen: number; // where the stock closed / opened, for the day change
-  /**
-   * Standing order-flow pressure on this pool, as a per-tick drift. Tokenized
-   * equities are bought far more than they are sold — holders want the
-   * exposure, not the round trip — so demand leans one way and keeps leaning
-   * that way for hours. It is what stops the pools sitting on the reference,
-   * and it is the reason there is a business here at all.
-   */
-  drift: number;
-  /** The lean this pool keeps coming back to. */
-  driftBase: number;
-  history: number[]; // recent basis, in bps, oldest first
-  lastFillTs: number;
-  fills: number; // fills mm has landed here
-  volume: number; // notional mm has pushed through
-  earned: number; // net edge this pool has produced
-};
-
-export type Fill = {
-  id: string;
-  tx: string;
-  poolId: string;
-  token: string;
   symbol: string;
-  side: "sell" | "buy";
+  binStep: number;
+  baseFeeBps: number;
+  price: number;
+  price24hAgo: number;
+  /** Volatility accumulator, in bins crossed. Drives the variable fee. */
+  volatility: number;
+  tvl: number;
+  volume24h: number;
+  fees24h: number;
+  /** Recent price, oldest first — for the sparkline. */
+  history: number[];
+  safety: Safety;
+  createdAt: number;
+};
+
+/** The pool's liquidity in a single bin, from its overall depth and shape. */
+export function poolLiquidityInBin(pool: Pool, binId: number): number {
+  const active = binIdAt(pool.price, pool.binStep);
+  const spread = 45; // other LPs cluster within roughly this many bins
+  const d = Math.abs(binId - active);
+  if (d > spread) return 0;
+  const z = d / (spread / 2.2);
+  const w = Math.exp(-0.5 * z * z);
+  // Normalise so the whole profile sums to the pool's TVL.
+  let norm = 0;
+  for (let k = -spread; k <= spread; k++) {
+    const zz = Math.abs(k) / (spread / 2.2);
+    norm += Math.exp(-0.5 * zz * zz);
+  }
+  return (pool.tvl * w) / norm;
+}
+
+export function currentFeeBps(pool: Pool): number {
+  return totalFeeBps(pool.baseFeeBps, pool.volatility, pool.binStep);
+}
+
+/** Fee return over the last 24h, and what annualising it would claim. */
+export function poolYield(pool: Pool) {
+  const period = pool.tvl > 0 ? (pool.fees24h / pool.tvl) * 100 : 0;
+  return { period, apr: period * 365 };
+}
+
+// ── Positions ───────────────────────────────────────────────────────────────
+
+export type Position = {
+  id: string;
+  poolId: string;
+  symbol: string;
+  preset: PresetId;
+  bins: BinLiquidity;
+  entry: Holdings;
+  entryPrice: number;
+  openedAt: number;
+  feesBase: number;
+  feesQuote: number;
+  costs: number; // rebalance swap fees + gas
+  rebalances: number;
+  lastRebalance: number;
+  ticksInRange: number;
+  ticksTotal: number;
+  closed?: { at: number; value: number };
+};
+
+/**
+ * How old a position is in the market's terms, not the browser's.
+ *
+ * The simulation runs at TIME_SCALE, so a minute of watching is an hour and a
+ * half of pool activity. Reporting "1.1% of fees in 48 seconds" would imply a
+ * yield nobody has ever earned; every age and fee window on screen is
+ * therefore scaled to the time the pool thinks has passed.
+ */
+export function simAge(p: Position, now: number): number {
+  return Math.max(0, now - p.openedAt) * TIME_SCALE;
+}
+
+export function timeInRange(p: Position): number {
+  return p.ticksTotal > 0 ? (p.ticksInRange / p.ticksTotal) * 100 : 0;
+}
+
+export function positionPnl(p: Position, price: number) {
+  return computePnl({
+    entry: p.entry,
+    entryPrice: p.entryPrice,
+    position: p.bins,
+    price,
+    feesBase: p.feesBase,
+    feesQuote: p.feesQuote,
+    costs: p.costs,
+  });
+}
+
+export type Swap = {
+  id: string;
+  poolId: string;
+  symbol: string;
   ts: number;
-  qty: number;
-  avgPx: number;
-  ref: number;
-  bps: number; // basis mm faded into
-  bpsAfter: number;
-  notional: number;
-  gross: number;
-  fee: number;
-  gas: number;
-  net: number;
+  side: "buy" | "sell";
+  sizeQuote: number;
+  feeBps: number;
+  feeQuote: number;
 };
 
-export type Epoch = {
-  index: number;
-  startTs: number;
-  endTs: number;
-  gross: number;
-  fees: number;
-  gas: number;
-  net: number;
-  keeper: number;
-  holders: number;
-  fills: number;
-  volume: number;
-  tx: string;
-};
-
-export type Live = {
-  index: number;
-  startTs: number;
-  endTs: number;
-  gross: number;
-  fees: number;
-  gas: number;
-  net: number;
-  fills: number;
-  volume: number;
-};
-
-export type User = {
-  connected: boolean;
-  address: string;
-  mm: number; // mm balance
-  usdc: number;
-  claimable: number;
-  paid: number;
-};
-
-export type Lifetime = { distributed: number; fills: number; volume: number; epochs: number };
+export type User = { connected: boolean; address: string; usdc: number };
 
 type State = {
   pools: Pool[];
-  fills: Fill[];
-  epochs: Epoch[]; // newest first
-  live: Live;
-  capital: number; // working capital in the vault
-  lifetime: Lifetime;
+  positions: Position[];
+  swaps: Swap[];
   user: User;
-  session: Session;
   now: number;
 };
 
-const MAX_FILLS = 40;
-const MAX_EPOCHS = 24;
-const HISTORY = 60;
+// ── Seed ────────────────────────────────────────────────────────────────────
+
+const MAX_SWAPS = 160;
+const HISTORY = 72;
+const DAY = 86_400_000;
 
 let idc = 1;
 const uid = () => `${Date.now().toString(36)}${(idc++).toString(36)}`;
 const hex = (n: number) =>
   Array.from({ length: n }, () => "0123456789abcdef"[(Math.random() * 16) | 0]).join("");
 const addr = () => `0x${hex(40)}`;
-const txh = () => `0x${hex(64)}`;
 
 function gaussian(sd: number): number {
   const u = 1 - Math.random();
@@ -201,257 +276,201 @@ function gaussian(sd: number): number {
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v) * sd;
 }
 
-// ── Seed ────────────────────────────────────────────────────────────────────
-
 type Spec = {
   sym: string;
-  co: string;
   px: number;
-  usd: number; // USDC side of the pool
-  fee: number;
-  venue: string;
-  bps: number; // where the pool starts relative to the stock
-  drift: number; // standing flow pressure, in bps per tick
+  tvl: number;
+  volMult: number; // 24h volume as a multiple of TVL
+  binStep: number;
+  baseFee: number;
+  vol: number; // how violent this token is
+  chg: number; // 24h change, as a fraction
+  safety: Safety;
 };
 
-/** The book at boot. A few pools already stretched, most inside the band. */
+const SAFE: Safety = {
+  ownershipRenounced: true,
+  liquidityLocked: true,
+  lockedPct: 100,
+  noTransferTax: true,
+  topHolderPct: 3.1,
+  ageDays: 420,
+};
+
 const SPECS: Spec[] = [
-  { sym: "NVDA", co: "NVIDIA", px: 178.4, usd: 1_350_000, fee: 30, venue: "hoodswap v4", bps: 240, drift: 2.6 },
-  { sym: "TSLA", co: "Tesla", px: 340.1, usd: 1_050_000, fee: 30, venue: "hoodswap v4", bps: -190, drift: -1.9 },
-  { sym: "AAPL", co: "Apple", px: 232.5, usd: 940_000, fee: 30, venue: "hoodswap v4", bps: 60, drift: 0.5 },
-  { sym: "HOOD", co: "Robinhood", px: 112.6, usd: 780_000, fee: 30, venue: "hoodswap v4", bps: 310, drift: 3.4 },
-  { sym: "MSFT", co: "Microsoft", px: 505.3, usd: 700_000, fee: 30, venue: "openpool v3", bps: -40, drift: -0.4 },
-  { sym: "COIN", co: "Coinbase", px: 305.2, usd: 580_000, fee: 30, venue: "hoodswap v4", bps: 175, drift: 2.1 },
-  { sym: "META", co: "Meta", px: 745.8, usd: 530_000, fee: 30, venue: "openpool v3", bps: 20, drift: 0.2 },
-  { sym: "AMZN", co: "Amazon", px: 218.7, usd: 480_000, fee: 30, venue: "hoodswap v4", bps: -95, drift: -1.1 },
-  { sym: "AMD", co: "AMD", px: 168.9, usd: 400_000, fee: 30, venue: "openpool v3", bps: 130, drift: 1.6 },
-  { sym: "GOOGL", co: "Alphabet", px: 205.1, usd: 360_000, fee: 30, venue: "hoodswap v4", bps: 45, drift: 0.4 },
-  { sym: "PLTR", co: "Palantir", px: 62.3, usd: 280_000, fee: 60, venue: "mesa", bps: 420, drift: 5.4 },
-  { sym: "NFLX", co: "Netflix", px: 1180.4, usd: 240_000, fee: 30, venue: "openpool v3", bps: -70, drift: -0.8 },
-  { sym: "MU", co: "Micron", px: 118.7, usd: 200_000, fee: 60, venue: "mesa", bps: 265, drift: 3.6 },
-  { sym: "SOFI", co: "SoFi", px: 24.8, usd: 140_000, fee: 60, venue: "mesa", bps: -230, drift: -3.1 },
-  { sym: "MARA", co: "MARA Holdings", px: 21.4, usd: 100_000, fee: 60, venue: "mesa", bps: 560, drift: 6.2 },
-  { sym: "RIVN", co: "Rivian", px: 15.9, usd: 78_000, fee: 60, venue: "mesa", bps: -120, drift: -2.2 },
+  { sym: "PEPE", px: 0.0000095, tvl: 3_400_000, volMult: 2.4, binStep: 50, baseFee: 50, vol: 0.9, chg: 0.062, safety: { ...SAFE, topHolderPct: 4.2, ageDays: 610 } },
+  { sym: "WIF", px: 0.62, tvl: 2_150_000, volMult: 3.1, binStep: 80, baseFee: 80, vol: 1.15, chg: -0.048, safety: { ...SAFE, topHolderPct: 5.8, ageDays: 520 } },
+  { sym: "BONK", px: 0.0000185, tvl: 1_820_000, volMult: 2.8, binStep: 50, baseFee: 50, vol: 1.0, chg: 0.031, safety: { ...SAFE, topHolderPct: 6.4, ageDays: 580 } },
+  { sym: "DOGE", px: 0.1624, tvl: 1_640_000, volMult: 1.4, binStep: 25, baseFee: 30, vol: 0.55, chg: 0.012, safety: { ...SAFE, topHolderPct: 2.4, ageDays: 900 } },
+  { sym: "POPCAT", px: 0.284, tvl: 940_000, volMult: 4.2, binStep: 100, baseFee: 100, vol: 1.5, chg: 0.118, safety: { ...SAFE, topHolderPct: 7.9, ageDays: 380 } },
+  { sym: "SHIB", px: 0.0000098, tvl: 880_000, volMult: 1.2, binStep: 25, baseFee: 30, vol: 0.5, chg: -0.008, safety: { ...SAFE, topHolderPct: 3.3, ageDays: 880 } },
+  { sym: "BRETT", px: 0.0452, tvl: 720_000, volMult: 3.5, binStep: 100, baseFee: 100, vol: 1.35, chg: -0.072, safety: { ...SAFE, topHolderPct: 8.6, ageDays: 340 } },
+  { sym: "MOG", px: 0.0000012, tvl: 610_000, volMult: 3.8, binStep: 100, baseFee: 100, vol: 1.45, chg: 0.094, safety: { ...SAFE, topHolderPct: 9.2, ageDays: 400 } },
+  { sym: "SPX", px: 0.552, tvl: 540_000, volMult: 4.6, binStep: 100, baseFee: 100, vol: 1.6, chg: 0.152, safety: { ...SAFE, topHolderPct: 6.1, ageDays: 300 } },
+  { sym: "TURBO", px: 0.0032, tvl: 410_000, volMult: 5.1, binStep: 125, baseFee: 120, vol: 1.7, chg: -0.096, safety: { ...SAFE, topHolderPct: 11.4, ageDays: 290 } },
+  { sym: "MEW", px: 0.0035, tvl: 330_000, volMult: 4.4, binStep: 125, baseFee: 120, vol: 1.6, chg: 0.041, safety: { ...SAFE, topHolderPct: 12.8, ageDays: 250 } },
+  { sym: "GIGA", px: 0.0114, tvl: 280_000, volMult: 5.6, binStep: 125, baseFee: 120, vol: 1.85, chg: 0.223, safety: { ...SAFE, topHolderPct: 9.7, ageDays: 190 } },
+  { sym: "PONKE", px: 0.212, tvl: 190_000, volMult: 6.2, binStep: 150, baseFee: 150, vol: 2.1, chg: -0.164, safety: { ...SAFE, liquidityLocked: false, lockedPct: 42, topHolderPct: 14.6, ageDays: 120 } },
+  { sym: "MICHI", px: 0.0318, tvl: 140_000, volMult: 7.4, binStep: 200, baseFee: 180, vol: 2.4, chg: 0.318, safety: { ...SAFE, ownershipRenounced: false, liquidityLocked: false, lockedPct: 18, topHolderPct: 21.3, ageDays: 11 } },
 ];
 
-/**
- * Calibration. These three numbers are not decoration: they are what the
- * engine above actually produces, measured over simulated hours of each
- * session, and everything the page shows about the past is derived from them.
- * The seeded history therefore lines up with the epochs the user watches
- * settle, instead of quietly contradicting them.
- *
- * Blended across a week — quiet US sessions, wide overnights, wider weekends.
- */
-const AVG_NET_PER_EPOCH = 1_350;
-const AVG_FILLS_PER_EPOCH = 40;
-const AVG_VOLUME_PER_EPOCH = 160_000;
-
-/** Epochs since launch — roughly nine weeks of quarter hours. */
-const EPOCHS_SINCE_LAUNCH = 6_142;
-
 function seedPool(s: Spec, now: number): Pool {
-  const price = s.px * (1 + s.bps / 10_000);
-  const rTok = s.usd / price;
   const history: number[] = [];
-  let b = s.bps;
+  let p = s.px / (1 + s.chg);
   for (let i = 0; i < HISTORY; i++) {
-    b = b * 0.94 + gaussian(38);
-    history.push(Math.round(b));
+    p *= 1 + s.chg / HISTORY + gaussian(0.004 * s.vol);
+    history.push(p);
   }
-  history[HISTORY - 1] = Math.round(s.bps);
+  history[HISTORY - 1] = s.px;
+  const volume24h = s.tvl * s.volMult;
   return {
     id: `p_${s.sym.toLowerCase()}`,
     symbol: s.sym,
-    token: `t${s.sym}`,
-    name: s.co,
-    venue: s.venue,
-    feeBps: s.fee,
-    rTok,
-    rUsd: s.usd,
-    ref: s.px,
-    refOpen: s.px * (1 - gaussian(0.008)),
-    drift: s.drift,
-    driftBase: s.drift,
+    binStep: s.binStep,
+    baseFeeBps: s.baseFee,
+    price: s.px,
+    price24hAgo: s.px / (1 + s.chg),
+    volatility: 1.2 + Math.random() * s.vol * 2,
+    tvl: s.tvl,
+    volume24h,
+    // Averaged over the day, using the same curve the pool charges live —
+    // base fee plus the surcharge at a typical volatility for this token — so
+    // the board's 24h figure and the pool's current fee tell one story.
+    fees24h: volume24h * (totalFeeBps(s.baseFee, 2.4 * s.vol, s.binStep) / 10_000),
     history,
-    // Spread across one cooldown window, so the pools become eligible at
-    // different moments instead of the whole book firing on the first tick.
-    lastFillTs: now - Math.random() * COOLDOWN_MS,
-    // Filled in by attributeHistory once the whole book is known.
-    fills: 0,
-    volume: 0,
-    earned: 0,
+    safety: s.safety,
+    createdAt: now - s.safety.ageDays * DAY,
   };
 }
 
-/**
- * Split the book's lifetime totals across the pools that produced them. A pool
- * earns in proportion to what it can absorb (its depth) and how hard flow
- * leans on it (its standing drift) — which is exactly what the live engine
- * rewards, so the record and the tape tell the same story.
- */
-function attributeHistory(pools: Pool[], epochs: number): void {
-  const weight = (p: Pool) => p.rUsd * (0.4 + Math.abs(p.driftBase));
-  const total = pools.reduce((a, p) => a + weight(p), 0);
-  const net = epochs * AVG_NET_PER_EPOCH;
-  const fills = epochs * AVG_FILLS_PER_EPOCH;
-  const volume = epochs * AVG_VOLUME_PER_EPOCH;
-  for (const p of pools) {
-    const w = weight(p) / total;
-    p.earned = net * w;
-    p.volume = volume * w;
-    p.fills = Math.round(fills * w);
-  }
-}
-
-/** A plausible record of the last few hours of quarter-hourly sweeps. */
-function seedEpochs(now: number): Epoch[] {
-  const out: Epoch[] = [];
-  const cur = epochIndex(now);
-  for (let i = 1; i <= 16; i++) {
-    const index = cur - i;
-    const startTs = index * EPOCH_MS;
-    // Right-skewed: most quarter hours are ordinary, a few catch a dislocation.
-    const scale = Math.max(0.15, 0.35 + Math.abs(gaussian(0.85)));
-    const net = AVG_NET_PER_EPOCH * scale;
-    const fills = Math.max(1, Math.round(AVG_FILLS_PER_EPOCH * (0.5 + scale * 0.6)));
-    const gas = fills * 0.42;
-    const gross = net + gas;
-    const fees = gross * (0.1 + Math.random() * 0.12);
-    const { keeper, holders } = splitEpoch(net);
-    out.push({
-      index,
-      startTs,
-      endTs: startTs + EPOCH_MS,
-      gross,
-      fees,
-      gas,
-      net,
-      keeper,
-      holders,
-      fills,
-      volume: AVG_VOLUME_PER_EPOCH * scale * (0.8 + Math.random() * 0.4),
-      tx: txh(),
-    });
-  }
-  return out;
-}
-
-function freshLive(now: number): Live {
-  const startTs = epochStart(now);
-  // The epoch in flight is partly done — seed it to match the elapsed slice.
-  const frac = Math.min(1, (now - startTs) / EPOCH_MS);
-  const scale = Math.max(0.2, 0.4 + Math.abs(gaussian(0.7)));
-  const gross = frac * AVG_NET_PER_EPOCH * scale;
-  const fills = Math.round(frac * AVG_FILLS_PER_EPOCH * scale);
+function seedState(now: number): State {
   return {
-    index: epochIndex(now),
-    startTs,
-    endTs: startTs + EPOCH_MS,
-    gross,
-    fees: gross * 0.16,
-    gas: fills * 0.42,
-    net: gross - fills * 0.42,
-    fills,
-    volume: frac * AVG_VOLUME_PER_EPOCH * scale,
-  };
-}
-
-function seedFills(pools: Pool[], now: number): Fill[] {
-  const out: Fill[] = [];
-  for (let i = 0; i < 14; i++) {
-    const p = pools[(Math.random() * pools.length) | 0];
-    const side: "sell" | "buy" = Math.random() < 0.72 ? "sell" : "buy";
-    const bps = (side === "sell" ? 1 : -1) * (BAND_BPS + Math.random() * 380);
-    const notional = 8_000 + Math.random() * 190_000;
-    const qty = notional / p.ref;
-    const gross = notional * Math.abs(bps / 10_000) * 0.42;
-    out.push({
-      id: uid(),
-      tx: txh(),
-      poolId: p.id,
-      token: p.token,
-      symbol: p.symbol,
-      side,
-      ts: now - ((Math.random() * 14 * 60_000) | 0),
-      qty,
-      avgPx: p.ref * (1 + bps / 10_000 / 2),
-      ref: p.ref,
-      bps,
-      bpsAfter: bps * 0.16,
-      notional,
-      gross,
-      fee: gross * 0.18,
-      gas: 0.42,
-      net: gross - 0.42,
-    });
-  }
-  return out.sort((a, b) => b.ts - a.ts);
-}
-
-function seed(now: number): State {
-  const pools = SPECS.map((s) => seedPool(s, now));
-  attributeHistory(pools, EPOCHS_SINCE_LAUNCH);
-  const epochs = seedEpochs(now);
-  return {
-    pools,
-    fills: seedFills(pools, now),
-    epochs,
-    live: freshLive(now),
-    // Enough to carry a full clip in every pool at once, plus hedge margin.
-    // It is the book mm trades, not a pot that the distributions come out of.
-    capital: 6_800_000,
-    lifetime: {
-      distributed: splitEpoch(EPOCHS_SINCE_LAUNCH * AVG_NET_PER_EPOCH).holders,
-      fills: pools.reduce((a, p) => a + p.fills, 0),
-      volume: pools.reduce((a, p) => a + p.volume, 0),
-      epochs: EPOCHS_SINCE_LAUNCH,
-    },
-    user: emptyUser(),
-    session: sessionAt(now),
+    pools: SPECS.map((s) => seedPool(s, now)),
+    positions: [],
+    swaps: [],
+    user: { connected: false, address: "", usdc: 0 },
     now,
   };
 }
 
-function emptyUser(): User {
-  return { connected: false, address: "", mm: 0, usdc: 0, claimable: 0, paid: 0 };
+function emptyState(): State {
+  return { pools: [], positions: [], swaps: [], user: { connected: false, address: "", usdc: 0 }, now: 0 };
 }
 
-function emptyState(): State {
+// ── Opening a position ──────────────────────────────────────────────────────
+
+/**
+ * Turn a plain "put $X into WIF on Follow" into actual bins.
+ *
+ * Balanced presets need roughly half the deposit as base, so they take a swap
+ * on the way in — charged here, not hidden, because it is the user's money.
+ * A bid ladder needs no swap at all: it is quote sitting below the price,
+ * which is the whole appeal.
+ */
+export function openPosition(args: {
+  pool: Pool;
+  preset: Preset;
+  amountUsd: number;
+  now: number;
+}): Position {
+  const { pool, preset, amountUsd, now } = args;
+  const active = binIdAt(pool.price, pool.binStep);
+
+  let lo: number;
+  let hi: number;
+  let amountQuote: number;
+  let amountBase: number;
+  let entryCost = 0;
+
+  if (preset.oneSided) {
+    // Entirely below price: no swap, no base.
+    lo = active - preset.halfWidth;
+    hi = active - 1;
+    amountQuote = amountUsd;
+    amountBase = 0;
+  } else {
+    lo = active - preset.halfWidth;
+    hi = active + preset.halfWidth;
+    // Half the deposit is swapped into the token, paying the pool's fee.
+    const half = amountUsd / 2;
+    const swapFee = half * (currentFeeBps(pool) / 10_000);
+    entryCost = swapFee;
+    amountQuote = half;
+    amountBase = (half - swapFee) / pool.price;
+  }
+
+  const bins = buildPosition({
+    binStep: pool.binStep,
+    activeBin: active,
+    lo,
+    hi,
+    shape: preset.shape,
+    amountBase,
+    amountQuote,
+    price: pool.price,
+  });
+
+  const entry = holdingsAt(bins, pool.price);
   return {
-    pools: [],
-    fills: [],
-    epochs: [],
-    live: { index: 0, startTs: 0, endTs: 0, gross: 0, fees: 0, gas: 0, net: 0, fills: 0, volume: 0 },
-    capital: 0,
-    lifetime: { distributed: 0, fills: 0, volume: 0, epochs: 0 },
-    user: emptyUser(),
-    session: "regular",
-    now: 0,
+    id: uid(),
+    poolId: pool.id,
+    symbol: pool.symbol,
+    preset: preset.id,
+    bins,
+    entry,
+    entryPrice: pool.price,
+    openedAt: now,
+    feesBase: 0,
+    feesQuote: 0,
+    costs: entryCost,
+    rebalances: 0,
+    lastRebalance: 0,
+    ticksInRange: 0,
+    ticksTotal: 0,
   };
 }
 
-// ── Derived ─────────────────────────────────────────────────────────────────
+/**
+ * Recenter a Follow position on the current price.
+ *
+ * The position is rebuilt from what it is actually holding now, so whatever
+ * impermanent loss it had accumulated is realised at this moment rather than
+ * left open to recover. The swap back to a balanced split costs the pool fee,
+ * and landing the transaction costs gas; both go on the position's tab.
+ */
+export const REBALANCE_GAS = 0.18;
 
-export function poolBasis(p: Pool): number {
-  return basisBps(p, p.ref);
-}
+function rebalance(pos: Position, pool: Pool, now: number): Position {
+  const preset = presetById(pos.preset);
+  const active = binIdAt(pool.price, pool.binStep);
+  const h = holdingsAt(pos.bins, pool.price);
+  const value = h.base * pool.price + h.quote;
 
-export function poolStateOf(p: Pool): PoolState {
-  return stateOf(poolBasis(p));
-}
+  // Bring the composition back to balanced; only the imbalance gets swapped.
+  const targetQuote = value / 2;
+  const swapNotional = Math.abs(h.quote - targetQuote);
+  const swapFee = swapNotional * (currentFeeBps(pool) / 10_000);
+  const net = value - swapFee - REBALANCE_GAS;
+  if (net <= 0) return pos;
 
-export function poolMid(p: Pool): number {
-  return poolPrice(p);
-}
+  const bins = buildPosition({
+    binStep: pool.binStep,
+    activeBin: active,
+    lo: active - preset.halfWidth,
+    hi: active + preset.halfWidth,
+    shape: preset.shape,
+    amountBase: net / 2 / pool.price,
+    amountQuote: net / 2,
+    price: pool.price,
+  });
 
-export function poolTvl(p: Pool): number {
-  return tvlAtRef(p, p.ref);
-}
-
-/** What mm would do to this pool right now, if anything. */
-export function pending(p: Pool, capital: number) {
-  return priceFade(p, p.ref, p.feeBps, Math.min(capital * 0.05, 400_000));
+  return {
+    ...pos,
+    bins,
+    costs: pos.costs + swapFee + REBALANCE_GAS,
+    rebalances: pos.rebalances + 1,
+    lastRebalance: now,
+  };
 }
 
 // ── Reducer ─────────────────────────────────────────────────────────────────
@@ -460,46 +479,13 @@ type Action =
   | { type: "HYDRATE"; state: State }
   | { type: "CONNECT" }
   | { type: "DISCONNECT" }
-  | { type: "CLAIM" }
+  | { type: "OPEN"; poolId: string; preset: PresetId; amountUsd: number }
+  | { type: "CLOSE"; positionId: string }
   | { type: "TICK"; now: number };
 
-/**
- * How hard the outside world pulls a pool back toward the stock.
- *
- * With the stock open, anyone can hedge in the real market, so a crowd of
- * arbitrageurs competes with mm and the pool snaps back on its own. Once the
- * bell goes there is nothing to hedge against and the pool is free to wander —
- * which is why a standing bid that would be worth 90 bps at noon is worth
- * several hundred at three in the morning.
- */
-function reversion(session: Session): number {
-  return session === "regular"
-    ? 0.085
-    : session === "pre" || session === "after"
-      ? 0.055
-      : session === "weekend"
-        ? 0.024
-        : 0.03;
-}
-
-/** How strongly standing flow leans on a pool, relative to its own base. */
-function driftScale(session: Session): number {
-  return session === "regular" ? 1 : session === "weekend" ? 1.5 : session === "overnight" ? 1.25 : 1.1;
-}
-
-function poolVol(session: Session): number {
-  return session === "regular"
-    ? 0.0005
-    : session === "weekend"
-      ? 0.0011
-      : session === "overnight"
-        ? 0.0007
-        : 0.0006;
-}
-
-function refVol(session: Session): number {
-  return session === "regular" ? 0.0007 : session === "pre" || session === "after" ? 0.0003 : 0;
-}
+const TICK_MS = 1500;
+/** Simulated minutes that pass per tick, so a session shows a real session. */
+const TIME_SCALE = 90;
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -507,168 +493,160 @@ function reducer(state: State, action: Action): State {
       return action.state;
 
     case "CONNECT":
-      return {
-        ...state,
-        user: {
-          connected: true,
-          address: addr(),
-          mm: 250_000,
-          usdc: 0,
-          claimable: 0,
-          paid: 0,
-        },
-      };
+      return { ...state, user: { connected: true, address: addr(), usdc: 5_000 } };
 
     case "DISCONNECT":
-      return { ...state, user: emptyUser() };
+      return { ...state, user: { connected: false, address: "", usdc: 0 }, positions: [] };
 
-    case "CLAIM": {
-      const { user } = state;
-      if (!user.connected || user.claimable <= 0) return state;
+    case "OPEN": {
+      const pool = state.pools.find((p) => p.id === action.poolId);
+      if (!pool || !state.user.connected) return state;
+      const amount = Math.min(action.amountUsd, state.user.usdc);
+      if (amount <= 0) return state;
+      const pos = openPosition({
+        pool,
+        preset: presetById(action.preset),
+        amountUsd: amount,
+        now: state.now,
+      });
       return {
         ...state,
-        user: {
-          ...user,
-          usdc: user.usdc + user.claimable,
-          paid: user.paid + user.claimable,
-          claimable: 0,
-        },
+        positions: [pos, ...state.positions],
+        user: { ...state.user, usdc: state.user.usdc - amount },
+      };
+    }
+
+    case "CLOSE": {
+      const pos = state.positions.find((p) => p.id === action.positionId);
+      if (!pos || pos.closed) return state;
+      const pool = state.pools.find((p) => p.id === pos.poolId)!;
+      // Everything comes out as USDC, so the token side is sold at the pool fee.
+      const h = holdingsAt(pos.bins, pool.price);
+      const baseValue = h.base * pool.price;
+      const exitFee = baseValue * (currentFeeBps(pool) / 10_000);
+      const fees = pos.feesBase * pool.price + pos.feesQuote;
+      const proceeds = baseValue - exitFee + h.quote + fees;
+      return {
+        ...state,
+        positions: state.positions.map((p) =>
+          p.id === pos.id
+            ? { ...p, costs: p.costs + exitFee, closed: { at: state.now, value: proceeds } }
+            : p
+        ),
+        user: { ...state.user, usdc: state.user.usdc + proceeds },
       };
     }
 
     case "TICK": {
       const now = action.now;
-      const session = sessionAt(now);
-      const live = { ...state.live };
-      const newFills: Fill[] = [];
-      const rev = reversion(session);
-      const ds = driftScale(session);
-      const pv = poolVol(session);
-      const rv = refVol(session);
-      const clip = Math.min(state.capital * 0.05, 400_000);
+      const dtMin = (TICK_MS / 60_000) * TIME_SCALE;
+      const newSwaps: Swap[] = [];
 
       const pools = state.pools.map((p0) => {
-        let p = { ...p0 };
+        const p = { ...p0 };
+        const spec = SPECS.find((s) => s.sym === p.symbol)!;
+        const before = binIdAt(p.price, p.binStep);
 
-        // The stock only moves while it is open.
-        if (rv > 0) p.ref = +(p.ref * (1 + gaussian(rv))).toFixed(4);
+        // Memecoins trend, chop, and occasionally fall off a cliff.
+        const drift = gaussian(0.0016 * spec.vol);
+        const jump = Math.random() < 0.012 ? gaussian(0.05 * spec.vol) : 0;
+        p.price = Math.max(1e-12, p.price * (1 + drift + jump));
 
-        // Standing flow wanders over hours, not seconds — a pool that has been
-        // bid all evening usually still is a minute later.
-        p.drift = Math.max(-8, Math.min(8, p.drift + (p.driftBase - p.drift) * 0.004 + gaussian(0.08)));
+        const after = binIdAt(p.price, p.binStep);
+        const crossed = Math.abs(after - before);
 
-        // The pool always moves: its standing bid, ordinary noise, the pull of
-        // whatever arbitrage the session allows, and the occasional size print
-        // that knocks it well off the stock. That is mm's raw material.
-        let px = poolPrice(p);
-        const shock = Math.random() < 0.005 ? gaussian(0.01) : 0;
-        px = px * (1 + (p.drift / 10_000) * ds + gaussian(pv) + shock) + (p.ref - px) * rev;
-        if (px > 0) {
-          const r = repriceTo(p, px);
-          p.rTok = r.rTok;
-          p.rUsd = r.rUsd;
+        // Volatility decays toward calm and spikes on every bin crossed.
+        p.volatility = Math.max(0, p.volatility * 0.94 + crossed * 1.8);
+
+        // Volume tracks volatility — nobody trades a flat chart.
+        const baseFlow = (p.volume24h / (24 * 60)) * dtMin;
+        const sizeQuote = baseFlow * (0.5 + Math.random() * 0.6 + p.volatility * 0.16);
+        const feeBps = currentFeeBps(p);
+        const feeQuote = sizeQuote * (feeBps / 10_000);
+
+        p.fees24h = p.fees24h * 0.999 + feeQuote;
+        p.volume24h = p.volume24h * 0.999 + sizeQuote * 0.001 * 24;
+        p.history = [...p.history, p.price].slice(-HISTORY);
+
+        // A tick is a couple of simulated minutes of flow, not one trade. Break
+        // it into individual swaps so the tape shows trades at sizes a real
+        // pool sees, while the totals stay exactly what the pool earned.
+        const parts = 2 + ((Math.random() * 3) | 0);
+        const weights = Array.from({ length: parts }, () => 0.4 + Math.random());
+        const wsum = weights.reduce((a, b) => a + b, 0);
+        for (let i = 0; i < parts; i++) {
+          const share = weights[i] / wsum;
+          newSwaps.push({
+            id: uid(),
+            poolId: p.id,
+            symbol: p.symbol,
+            ts: now - Math.round((parts - 1 - i) * 900),
+            // Net direction follows the price, but not every trade agrees.
+            side: Math.random() < 0.72 ? (after >= before ? "buy" : "sell") : after >= before ? "sell" : "buy",
+            sizeQuote: sizeQuote * share,
+            feeBps,
+            feeQuote: feeQuote * share,
+          });
         }
 
-        // mm's turn.
-        const bps = basisBps(p, p.ref);
-        if (Math.abs(bps) >= BAND_BPS && now - p.lastFillTs >= COOLDOWN_MS) {
-          const f = priceFade(p, p.ref, p.feeBps, clip);
-          if (f) {
-            const notional = f.qty * p.ref;
-            newFills.push({
-              id: uid(),
-              tx: txh(),
-              poolId: p.id,
-              token: p.token,
-              symbol: p.symbol,
-              side: f.side,
-              ts: now,
-              qty: f.qty,
-              avgPx: f.avgPx,
-              ref: p.ref,
-              bps,
-              bpsAfter: f.bpsAfter,
-              notional,
-              gross: f.gross,
-              fee: f.fee,
-              gas: f.gas,
-              net: f.net,
-            });
-            p.rTok = f.after.rTok;
-            p.rUsd = f.after.rUsd;
-            p.lastFillTs = now;
-            p.fills += 1;
-            p.volume += notional;
-            p.earned += f.net;
-
-            live.gross += f.gross;
-            live.fees += f.fee;
-            live.gas += f.gas;
-            live.net += f.net;
-            live.fills += 1;
-            live.volume += notional;
-          }
-        }
-
-        p.history = [...p.history, Math.round(basisBps(p, p.ref))].slice(-HISTORY);
+        // Stash this tick's swap on the pool so positions can be paid from it.
+        (p as Pool & { _tick?: TickInfo })._tick = {
+          before,
+          after,
+          feeQuote,
+          rose: p.price >= p0.price,
+        };
         return p;
       });
 
-      let { epochs, lifetime, user } = state;
-      let nextLive = live;
+      let positions = state.positions.map((pos) => {
+        if (pos.closed) return pos;
+        const pool = pools.find((p) => p.id === pos.poolId) as Pool & { _tick?: TickInfo };
+        if (!pool?._tick) return pos;
+        const t = pool._tick;
 
-      // Quarter-hour boundary: close the epoch, sweep it, pay it out.
-      const idx = epochIndex(now);
-      if (idx > live.index && live.startTs > 0) {
-        const { keeper, holders } = splitEpoch(live.net);
-        const closed: Epoch = {
-          index: live.index,
-          startTs: live.startTs,
-          endTs: live.startTs + EPOCH_MS,
-          gross: live.gross,
-          fees: live.fees,
-          gas: live.gas,
-          net: live.net,
-          keeper,
-          holders,
-          fills: live.fills,
-          volume: live.volume,
-          tx: txh(),
-        };
-        epochs = [closed, ...epochs].slice(0, MAX_EPOCHS);
-        lifetime = {
-          distributed: lifetime.distributed + holders,
-          fills: lifetime.fills + closed.fills,
-          volume: lifetime.volume + closed.volume,
-          epochs: lifetime.epochs + 1,
-        };
-        if (user.connected) {
-          user = { ...user, claimable: user.claimable + shareOf(holders, user.mm) };
+        let next = { ...pos, ticksTotal: pos.ticksTotal + 1 };
+        if (inRange(pos.bins, pool.price)) next.ticksInRange += 1;
+
+        // Fees go to the bins price actually crossed, split by liquidity share.
+        const from = Math.min(t.before, t.after);
+        const to = Math.max(t.before, t.after);
+        let poolShare = 0;
+        let mine = 0;
+        for (let id = from; id <= to; id++) {
+          const poolL = poolLiquidityInBin(pool, id);
+          if (poolL <= 0) continue;
+          poolShare += poolL;
+          const k = id - pos.bins.lo;
+          if (k >= 0 && k < pos.bins.l.length) mine += Math.min(pos.bins.l[k], poolL);
         }
-        const startTs = epochStart(now);
-        nextLive = {
-          index: idx,
-          startTs,
-          endTs: startTs + EPOCH_MS,
-          gross: 0,
-          fees: 0,
-          gas: 0,
-          net: 0,
-          fills: 0,
-          volume: 0,
-        };
-      }
+        if (poolShare > 0 && mine > 0) {
+          const cut = t.feeQuote * (mine / poolShare);
+          // Fees are paid in whatever token the trader put in.
+          if (t.rose) next.feesQuote += cut;
+          else next.feesBase += cut / pool.price;
+        }
+
+        const preset = presetById(next.preset);
+        if (preset.follow && !inRange(next.bins, pool.price) && now - next.lastRebalance > 4000) {
+          next = rebalance(next, pool, now);
+        }
+        return next;
+      });
+
+      // Drop the scratch field so it never reaches storage or the UI.
+      const clean = pools.map((p) => {
+        const c = { ...p } as Pool & { _tick?: TickInfo };
+        delete c._tick;
+        return c as Pool;
+      });
 
       return {
         ...state,
         now,
-        session,
-        pools,
-        fills: newFills.length ? [...newFills, ...state.fills].slice(0, MAX_FILLS) : state.fills,
-        live: nextLive,
-        epochs,
-        lifetime,
-        user,
+        pools: clean,
+        positions,
+        swaps: newSwaps.length ? [...newSwaps, ...state.swaps].slice(0, MAX_SWAPS) : state.swaps,
       };
     }
 
@@ -677,9 +655,11 @@ function reducer(state: State, action: Action): State {
   }
 }
 
+type TickInfo = { before: number; after: number; feeQuote: number; rose: boolean };
+
 // ── Provider ────────────────────────────────────────────────────────────────
 
-const KEY = "mm.v1";
+const KEY = "tide.v1";
 const SAVE_MS = 8_000;
 
 type Ctx = { state: State; dispatch: React.Dispatch<Action>; ready: boolean };
@@ -699,16 +679,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const raw = localStorage.getItem(KEY);
       if (raw) {
         const saved = JSON.parse(raw) as State;
-        // A stale save has an epoch that closed while nobody was watching;
-        // restart the clock rather than replay hours of empty quarter hours.
-        if (saved.pools?.length && epochIndex(now) - saved.live.index < 4) {
-          next = { ...saved, now, session: sessionAt(now) };
-        }
+        if (saved.pools?.length) next = { ...saved, now };
       }
     } catch {
       next = null;
     }
-    dispatch({ type: "HYDRATE", state: next ?? seed(now) });
+    dispatch({ type: "HYDRATE", state: next ?? seedState(now) });
   }, []);
 
   useEffect(() => {
@@ -726,7 +702,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const reduce =
       typeof window !== "undefined" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const t = setInterval(() => dispatch({ type: "TICK", now: Date.now() }), reduce ? 4000 : 1400);
+    const t = setInterval(
+      () => dispatch({ type: "TICK", now: Date.now() }),
+      reduce ? TICK_MS * 3 : TICK_MS
+    );
     return () => clearInterval(t);
   }, []);
 
@@ -740,4 +719,4 @@ export function useStore(): Ctx {
   return ctx;
 }
 
-export { SUPPLY, EPOCH_MS, BAND_BPS };
+export { binIdAt, binPrice, hiBin, holdingsAt, inRange, valueAt, shapeWeights, TIME_SCALE };

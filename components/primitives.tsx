@@ -1,12 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { BAND_BPS } from "@/lib/basis";
-import type { PoolState } from "@/lib/basis";
-import { countdown } from "@/lib/format";
-import { LOGOS, BRANDS } from "@/lib/logos";
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import {
+  binIdAt,
+  binPrice,
+  binProgress,
+  hiBin,
+  type BinLiquidity,
+} from "@/lib/bins";
+import { poolLiquidityInBin, type Pool } from "@/lib/store";
+import { tokenMeta, QUOTE } from "@/lib/tokens";
+import { price as fmtPrice, usd } from "@/lib/format";
 
-/** Pick black or white text for legibility on a given background hex. */
+/** Black or white text, whichever survives on a given background. */
 function readableOn(hex: string): string {
   const h = hex.replace("#", "");
   const r = parseInt(h.slice(0, 2), 16) / 255;
@@ -14,235 +21,249 @@ function readableOn(hex: string): string {
   const b = parseInt(h.slice(4, 6), 16) / 255;
   const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
   const L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-  return L > 0.45 ? "#06090c" : "#ffffff";
+  return L > 0.45 ? "#0a0812" : "#ffffff";
 }
 
-export function TickerAvatar({
+export function TokenAvatar({
   symbol,
-  size = 40,
-  radius = 11,
+  size = 36,
+  radius = 999,
 }: {
   symbol: string;
   size?: number;
   radius?: number;
 }) {
-  const [broken, setBroken] = useState(false);
-  const logo = LOGOS[symbol];
-  if (logo && !broken) {
-    return (
-      <img
-        src={logo}
-        alt={symbol}
-        width={size}
-        height={size}
-        onError={() => setBroken(true)}
-        className="shrink-0 object-contain"
-        style={{ width: size, height: size, borderRadius: radius, background: "#fff" }}
-      />
-    );
-  }
-  // Brand-colored monogram tile — a placeholder, not a logo reproduction.
-  const brand = BRANDS[symbol] ?? "#2a3540";
+  const m = tokenMeta(symbol);
   return (
     <div
-      className="flex shrink-0 items-center justify-center font-mono font-bold"
+      className="flex shrink-0 items-center justify-center font-bold"
       style={{
         width: size,
         height: size,
         borderRadius: radius,
-        background: brand,
-        color: readableOn(brand),
-        fontSize: size * 0.34,
-        letterSpacing: "-0.02em",
+        background: m.color,
+        color: readableOn(m.color),
+        fontSize: size * 0.38,
+        letterSpacing: "-0.03em",
       }}
       aria-hidden
     >
-      {symbol.slice(0, 2)}
+      {symbol.slice(0, 1)}
     </div>
   );
 }
 
-/** Self-ticking countdown to a target timestamp. */
-export function Countdown({ target, className }: { target: number; className?: string }) {
-  const [, force] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => force((n) => n + 1), 1000);
-    return () => clearInterval(t);
-  }, []);
-  return <span className={className}>{countdown(target - Date.now())}</span>;
-}
+// ── The bin chart ───────────────────────────────────────────────────────────
 
-// ── Basis presentation ──────────────────────────────────────────────────────
+/**
+ * The picture the whole product is built around.
+ *
+ * Each bar is one price bin. Below the current price a bin holds USDC (cyan);
+ * above it, the token (violet); the bin price is standing in holds both and is
+ * drawn bright. Where a position is supplied, its own liquidity is overlaid
+ * inside the pool's bars — so "am I in range, and how much of this pool is
+ * actually mine" is answered by looking, not by reading a number.
+ */
+export function BinChart({
+  pool,
+  position,
+  height = 128,
+  span = 34,
+  showAxis = true,
+  positionOnly = false,
+}: {
+  pool: Pool;
+  position?: BinLiquidity;
+  height?: number;
+  span?: number;
+  showAxis?: boolean;
+  positionOnly?: boolean;
+}) {
+  const active = binIdAt(pool.price, pool.binStep);
+  const tint = tokenMeta(pool.symbol).color;
 
-/** How rich is rich. Past 400 bps the pool is properly dislocated. */
-export function basisColor(b: number): string {
-  if (b >= 400) return "var(--color-rich-hot)";
-  if (b >= BAND_BPS) return "var(--color-rich)";
-  if (b <= -BAND_BPS) return "var(--color-cheap)";
-  return "var(--color-fair)";
-}
+  const bars = useMemo(() => {
+    // Widen the window if the position reaches past the default view.
+    let lo = active - span;
+    let hi = active + span;
+    if (position) {
+      lo = Math.min(lo, position.lo - 2);
+      hi = Math.max(hi, hiBin(position) + 2);
+    }
+    const out = [];
+    for (let id = lo; id <= hi; id++) {
+      const poolL = positionOnly ? 0 : poolLiquidityInBin(pool, id);
+      const k = position ? id - position.lo : -1;
+      const mine = position && k >= 0 && k < position.l.length ? position.l[k] : 0;
+      out.push({ id, poolL, mine });
+    }
+    return out;
+  }, [pool, position, active, span, positionOnly]);
 
-export function basisTextClass(b: number): string {
-  if (b >= 400) return "text-rich-hot";
-  if (b >= BAND_BPS) return "text-rich";
-  if (b <= -BAND_BPS) return "text-cheap";
-  return "text-fair";
-}
+  // Two scales, deliberately. Pool depth is context and your position is the
+  // subject; drawn on one shared axis a retail-sized position against a
+  // multi-million-dollar pool is a flat line one pixel high, which tells you
+  // nothing about the thing you actually came to look at — where your
+  // liquidity sits. The pool keeps its own shape behind it.
+  const poolMax = Math.max(...bars.map((b) => b.poolL), 1);
+  const mineMax = Math.max(...bars.map((b) => b.mine), 1);
+  const hasMine = bars.some((b) => b.mine > 0);
+  const loPrice = binPrice(bars[0].id, pool.binStep);
+  const hiPrice = binPrice(bars[bars.length - 1].id, pool.binStep);
 
-const STATE_COPY: Record<PoolState, { label: string; note: string }> = {
-  rich: { label: "RICH", note: "pool above the stock — mm sells into it" },
-  cheap: { label: "CHEAP", note: "pool below the stock — mm buys out of it" },
-  fair: { label: "FAIR", note: "inside the band — nothing to do" },
-};
-
-export function StatePill({ state, size = "md" }: { state: PoolState; size?: "sm" | "md" }) {
-  const c = STATE_COPY[state];
-  const color =
-    state === "rich" ? "var(--color-rich)" : state === "cheap" ? "var(--color-cheap)" : "var(--color-fair)";
-  const pad = size === "sm" ? "px-1.5 py-px text-[10px]" : "px-2 py-0.5 text-[11px]";
   return (
-    <span
-      title={c.note}
-      className={`inline-flex items-center gap-1.5 rounded-full border font-semibold ${pad}`}
-      style={{ borderColor: `${color}44`, background: `${color}14`, color }}
-    >
-      {state !== "fair" && (
-        <span className="h-1.5 w-1.5 animate-pulse-dot rounded-full" style={{ background: color }} />
+    <div>
+      <div className="flex items-end gap-px" style={{ height }} role="img"
+        aria-label={`Liquidity by price bin around ${fmtPrice(pool.price)}`}>
+        {bars.map((b) => {
+          const isActive = b.id === active;
+          const side = b.id < active ? "quote" : "base";
+          const color = isActive
+            ? "var(--color-foreground)"
+            : side === "quote"
+              ? "var(--color-quote)"
+              : tint;
+          const poolH = (b.poolL / poolMax) * height;
+          const mineH = b.mine > 0 ? (b.mine / mineMax) * height * 0.82 : 0;
+          return (
+            <div key={b.id} className="relative flex-1" style={{ height }}>
+              {/* The pool's own depth, receding into the background. */}
+              {poolH > 0 && (
+                <div
+                  className="absolute bottom-0 w-full rounded-t-[2px]"
+                  style={{
+                    height: Math.max(1, poolH),
+                    background: color,
+                    // Faint behind a position so the overlay reads, but legible
+                    // on its own when the chart is just showing pool depth.
+                    opacity: mineH > 0 ? (isActive ? 0.36 : 0.18) : isActive ? 0.6 : 0.4,
+                  }}
+                />
+              )}
+              {/* Your share of it, solid. */}
+              {mineH > 0 && (
+                <div
+                  className="absolute bottom-0 w-full rounded-t-[2px] transition-[height] duration-500"
+                  style={{
+                    height: Math.max(2, mineH),
+                    background: color,
+                    boxShadow: isActive ? `0 0 8px ${color}` : undefined,
+                  }}
+                />
+              )}
+              {isActive && (
+                <div
+                  aria-hidden
+                  className="absolute inset-x-0 bottom-0 top-0 border-x border-dashed"
+                  style={{ borderColor: "rgba(238,236,247,0.28)" }}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {showAxis && (
+        <div className="mt-1.5 flex justify-between font-mono text-[10px] text-muted">
+          <span>{fmtPrice(loPrice)}</span>
+          <span className="text-foreground">{fmtPrice(pool.price)}</span>
+          <span>{fmtPrice(hiPrice)}</span>
+        </div>
       )}
-      {c.label}
+      {hasMine && !positionOnly && (
+        <p className="mt-1 text-[10px] leading-relaxed text-muted/70">
+          Solid bars are your liquidity, drawn to its own scale; the faint bars
+          behind are the pool&apos;s depth. Heights are not comparable between
+          the two.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Which colour means what. Shown once, near the first chart. */
+export function BinLegend({ symbol }: { symbol: string }) {
+  const tint = tokenMeta(symbol).color;
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted">
+      <Swatch color="var(--color-quote)" label={`${QUOTE} — bins below price`} />
+      <Swatch color={tint} label={`${symbol} — bins above price`} />
+      <Swatch color="var(--color-foreground)" label="the bin price is in" />
+    </div>
+  );
+}
+
+function Swatch({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span className="h-2.5 w-2.5 rounded-sm" style={{ background: color }} />
+      {label}
     </span>
   );
 }
 
-/**
- * Where the pool sits relative to the stock, on a fixed ±600 bps scale.
- * The shaded middle is the no-trade band; a marker outside it is money.
- */
-export function BasisGauge({
-  bps,
-  height = 10,
-  scale = 600,
-  showBand = true,
-}: {
-  bps: number;
-  height?: number;
-  scale?: number;
-  showBand?: boolean;
-}) {
-  const clamped = Math.max(-scale, Math.min(scale, bps));
-  const pos = ((clamped + scale) / (2 * scale)) * 100;
-  const bandW = (BAND_BPS / scale) * 50;
-  const color = basisColor(bps);
-  return (
-    <div
-      className="relative w-full overflow-hidden rounded-full bg-white/[0.045]"
-      style={{ height }}
-      role="img"
-      aria-label={`${Math.round(bps)} basis points versus the stock`}
-    >
-      {/* cheap ← | → rich, tinted so the direction reads without a legend */}
-      <div
-        aria-hidden
-        className="absolute inset-0"
-        style={{
-          background:
-            "linear-gradient(90deg, rgba(77,163,255,0.22), rgba(125,143,155,0.05) 40%, rgba(125,143,155,0.05) 60%, rgba(255,166,46,0.22))",
-        }}
-      />
-      {showBand && (
-        <div
-          aria-hidden
-          className="absolute inset-y-0 border-x border-dashed border-white/15 bg-white/[0.03]"
-          style={{ left: `${50 - bandW}%`, width: `${bandW * 2}%` }}
-        />
-      )}
-      <div aria-hidden className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-white/25" />
-      <div
-        aria-hidden
-        className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-500"
-        style={{
-          left: `${pos}%`,
-          width: height + 2,
-          height: height + 2,
-          background: color,
-          boxShadow: `0 0 10px ${color}`,
-        }}
-      />
-    </div>
-  );
-}
+// ── Small pieces ────────────────────────────────────────────────────────────
 
-/** Recent basis, in bps, with the fair line drawn through it. */
-export function BasisSpark({
-  history,
-  width = 160,
-  height = 40,
-  scale,
+export function Sparkline({
+  values,
+  width = 88,
+  height = 26,
+  color,
 }: {
-  history: number[];
+  values: number[];
   width?: number;
   height?: number;
-  scale?: number;
+  color?: string;
 }) {
-  if (history.length < 2) return <div style={{ width, height }} />;
-  const span = scale ?? Math.max(200, ...history.map((h) => Math.abs(h) * 1.15));
-  const y = (v: number) => height / 2 - (Math.max(-span, Math.min(span, v)) / span) * (height / 2 - 2);
-  const x = (i: number) => (i / (history.length - 1)) * width;
-  const d = history.map((v, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(" ");
-  const last = history[history.length - 1];
-  const color = basisColor(last);
-  const bandTop = y(BAND_BPS);
-  const bandBottom = y(-BAND_BPS);
+  if (values.length < 2) return <div style={{ width, height }} />;
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  const range = hi - lo || 1;
+  const y = (v: number) => height - 2 - ((v - lo) / range) * (height - 4);
+  const x = (i: number) => (i / (values.length - 1)) * width;
+  const d = values.map((v, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(" ");
+  const up = values[values.length - 1] >= values[0];
+  const stroke = color ?? (up ? "var(--color-up)" : "var(--color-down)");
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden className="overflow-visible">
-      <rect x={0} y={bandTop} width={width} height={bandBottom - bandTop} fill="rgba(125,143,155,0.09)" />
-      <line x1={0} y1={height / 2} x2={width} y2={height / 2} stroke="rgba(255,255,255,0.18)" strokeDasharray="2 3" />
-      <path d={d} fill="none" stroke={color} strokeWidth={1.6} strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={x(history.length - 1)} cy={y(last)} r={2.4} fill={color} />
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden>
+      <path d={d} fill="none" stroke={stroke} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
     </svg>
   );
 }
 
-/** A labelled figure. The workhorse of every panel on the site. */
+export function RangePill({ inRange: ir }: { inRange: boolean }) {
+  const color = ir ? "var(--color-inrange)" : "var(--color-outrange)";
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold"
+      style={{ borderColor: `${color}44`, background: `${color}14`, color }}
+      title={ir ? "Price is inside your range — this position is earning fees." : "Price has left your range. This position is earning nothing until it comes back."}
+    >
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${ir ? "animate-pulse-dot" : ""}`}
+        style={{ background: color }}
+      />
+      {ir ? "EARNING" : "IDLE"}
+    </span>
+  );
+}
+
 export function Stat({
   label,
   value,
   sub,
-  tone = "default",
-  mono = true,
+  className = "",
 }: {
   label: string;
   value: React.ReactNode;
   sub?: React.ReactNode;
-  tone?: "default" | "accent" | "rich" | "muted";
-  mono?: boolean;
-}) {
-  const cls =
-    tone === "accent"
-      ? "text-accent"
-      : tone === "rich"
-        ? "text-rich"
-        : tone === "muted"
-          ? "text-muted"
-          : "text-foreground";
-  return (
-    <div>
-      <p className="text-[11px] uppercase tracking-wide text-muted">{label}</p>
-      <p className={`mt-0.5 text-lg font-semibold tnum ${mono ? "font-mono" : ""} ${cls}`}>{value}</p>
-      {sub && <p className="text-[11px] text-muted">{sub}</p>}
-    </div>
-  );
-}
-
-export function Card({
-  children,
-  className = "",
-}: {
-  children: React.ReactNode;
   className?: string;
 }) {
   return (
-    <div className={`rounded-xl border border-edge bg-card ${className}`}>{children}</div>
+    <div>
+      <p className="text-[11px] uppercase tracking-wide text-muted">{label}</p>
+      <p className={`mt-0.5 font-mono text-lg font-semibold tnum ${className}`}>{value}</p>
+      {sub && <p className="text-[11px] text-muted">{sub}</p>}
+    </div>
   );
 }
 
@@ -273,4 +294,27 @@ export function SectionHead({
       {children && <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted">{children}</p>}
     </div>
   );
+}
+
+/** Colour a number by its sign, the way a PnL column should be read. */
+export function signClass(n: number): string {
+  return n > 0 ? "text-up" : n < 0 ? "text-down" : "text-muted";
+}
+
+
+
+/**
+ * Render into `document.body`, escaping the current subtree.
+ *
+ * Any ancestor carrying a transform, filter or backdrop-filter becomes the
+ * containing block for `position: fixed` descendants — so a modal nested
+ * inside the blurred sticky header gets clipped to a 56px-tall strip instead
+ * of covering the viewport. Overlays go through here so no styling decision
+ * further up the tree can quietly break them.
+ */
+export function Portal({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
+  return createPortal(children, document.body);
 }

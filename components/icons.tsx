@@ -16,90 +16,40 @@ const base: P = {
 };
 
 /**
- * The mm mark — the whole trade in one glyph: a dashed line where the stock
- * really is, a solid line where the pool has run to, and an arrow pushing the
- * second down onto the first.
+ * The tide mark — a row of liquidity bins peaking at the active price.
+ * It is the product's one real picture, shrunk to a logo.
  */
-export function MmMark(props: P) {
+export function TideMark(props: P) {
   return (
     <svg width={28} height={28} viewBox="0 0 32 32" fill="none" aria-hidden {...props}>
-      <path
-        d="M4 22h24"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeDasharray="3 3"
-        opacity="0.5"
-      />
-      <path d="M8 9h16" stroke="var(--color-rich)" strokeWidth="2.4" strokeLinecap="round" />
-      <path
-        d="M16 11v8m0 0-3.2-3.2M16 19l3.2-3.2"
-        stroke="var(--color-accent)"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <rect x="3" y="18" width="3.6" height="9" rx="1.3" fill="var(--color-quote)" opacity="0.75" />
+      <rect x="8.6" y="13.5" width="3.6" height="13.5" rx="1.3" fill="var(--color-quote)" />
+      <rect x="14.2" y="7" width="3.6" height="20" rx="1.3" fill="currentColor" />
+      <rect x="19.8" y="13.5" width="3.6" height="13.5" rx="1.3" fill="var(--color-base)" />
+      <rect x="25.4" y="18" width="3.6" height="9" rx="1.3" fill="var(--color-base)" opacity="0.75" />
     </svg>
   );
 }
 
-/** The gap between two prices — the thing mm gets paid for. */
-export function BasisIcon(props: P) {
+/** Bins — the shape of a position. */
+export function BinsIcon(props: P) {
   return (
     <svg {...base} {...props}>
-      <path d="M3 8h8" />
-      <path d="M13 17h8" opacity="0.55" />
-      <path d="M12 8v9" strokeDasharray="2 2" />
+      <path d="M4 20v-5M8.7 20v-9M13.3 20V6M18 20v-9M22 20v-5" />
     </svg>
   );
 }
 
-/** Watching every pool. */
-export function RadarIcon(props: P) {
+/** Liquidity that follows the price. */
+export function TideIcon(props: P) {
   return (
     <svg {...base} {...props}>
-      <circle cx="12" cy="12" r="9" opacity="0.4" />
-      <circle cx="12" cy="12" r="5" opacity="0.7" />
-      <path d="M12 12 18.5 7" />
-      <circle cx="16.5" cy="8.5" r="1.4" fill="currentColor" stroke="none" />
+      <path d="M2.5 9c2-2.2 4-2.2 6 0s4 2.2 6 0 4-2.2 6 0" />
+      <path d="M2.5 15c2-2.2 4-2.2 6 0s4 2.2 6 0 4-2.2 6 0" opacity="0.5" />
     </svg>
   );
 }
 
-/** A fill landing. */
-export function BoltIcon(props: P) {
-  return (
-    <svg {...base} {...props}>
-      <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" />
-    </svg>
-  );
-}
-
-/** The quarter-hour clock. */
-export function ClockIcon(props: P) {
-  return (
-    <svg {...base} {...props}>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3.5 2" />
-    </svg>
-  );
-}
-
-/** The sweep: one pot going out to many holders. */
-export function SplitIcon(props: P) {
-  return (
-    <svg {...base} {...props}>
-      <path d="M12 3v6" />
-      <path d="M12 9c0 3-6 3-6 6v3" />
-      <path d="M12 9c0 3 6 3 6 6v3" />
-      <circle cx="12" cy="3.5" r="1.6" fill="currentColor" stroke="none" />
-      <circle cx="6" cy="19" r="1.6" fill="currentColor" stroke="none" />
-      <circle cx="18" cy="19" r="1.6" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-/** Hedged — the position is covered on the other side. */
 export function ShieldIcon(props: P) {
   return (
     <svg {...base} {...props}>
@@ -109,21 +59,37 @@ export function ShieldIcon(props: P) {
   );
 }
 
-export function LayersIcon(props: P) {
+export function ScaleIcon(props: P) {
   return (
     <svg {...base} {...props}>
-      <path d="m12 3 9 5-9 5-9-5 9-5Z" />
-      <path d="m3 13 9 5 9-5" opacity="0.5" />
+      <path d="M12 3v18M6 7h12" />
+      <path d="M6 7 3 13a3 3 0 0 0 6 0L6 7ZM18 7l-3 6a3 3 0 0 0 6 0l-3-6Z" />
     </svg>
   );
 }
 
-export function PoolIcon(props: P) {
+export function BoltIcon(props: P) {
   return (
     <svg {...base} {...props}>
-      <ellipse cx="12" cy="7" rx="8" ry="3.2" />
-      <path d="M4 7v10c0 1.8 3.6 3.2 8 3.2s8-1.4 8-3.2V7" />
-      <path d="M4 12c0 1.8 3.6 3.2 8 3.2s8-1.4 8-3.2" opacity="0.5" />
+      <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" />
+    </svg>
+  );
+}
+
+export function ClockIcon(props: P) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3.5 2" />
+    </svg>
+  );
+}
+
+export function AlertIcon(props: P) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M12 4.5 2.8 20h18.4L12 4.5Z" />
+      <path d="M12 10v4.2M12 17.4h.01" />
     </svg>
   );
 }
@@ -136,27 +102,10 @@ export function CheckIcon(props: P) {
   );
 }
 
-export function TrendUpIcon(props: P) {
+export function CrossIcon(props: P) {
   return (
     <svg {...base} {...props}>
-      <path d="M3 17 9 11l4 4 8-8" />
-      <path d="M15 7h6v6" />
-    </svg>
-  );
-}
-
-export function ArrowDownIcon(props: P) {
-  return (
-    <svg {...base} {...props}>
-      <path d="M12 4v15M12 19l-6-6M12 19l6-6" />
-    </svg>
-  );
-}
-
-export function ArrowUpIcon(props: P) {
-  return (
-    <svg {...base} {...props}>
-      <path d="M12 20V5M12 5 6 11M12 5l6 6" />
+      <path d="M6 6l12 12M18 6 6 18" />
     </svg>
   );
 }
@@ -167,14 +116,6 @@ export function WalletIcon(props: P) {
       <rect x="3" y="6" width="18" height="13" rx="3" />
       <path d="M3 10h18" opacity="0.4" />
       <circle cx="16.5" cy="14.5" r="1.1" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-export function CloseIcon(props: P) {
-  return (
-    <svg {...base} {...props}>
-      <path d="M6 6l12 12M18 6 6 18" />
     </svg>
   );
 }
@@ -197,10 +138,19 @@ export function LinkIcon(props: P) {
   );
 }
 
-export function XIcon(props: P) {
+export function PlusIcon(props: P) {
   return (
-    <svg width={18} height={18} viewBox="0 0 24 24" fill="currentColor" aria-hidden {...props}>
-      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231Zm-1.161 17.52h1.833L7.084 4.126H5.117Z" />
+    <svg {...base} {...props}>
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+export function InfoIcon(props: P) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5M12 8h.01" />
     </svg>
   );
 }

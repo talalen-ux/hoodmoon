@@ -1,382 +1,270 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   useStore,
-  poolBasis,
-  poolStateOf,
-  poolTvl,
-  refIsLive,
-  SESSION_LABEL,
-  SUPPLY,
+  currentFeeBps,
+  poolYield,
+  safetyFlags,
+  positionPnl,
+  PRESETS,
   type Pool,
 } from "@/lib/store";
-import { BAND_BPS, LEAVE_BPS, shareOf } from "@/lib/basis";
-import { bps, count, usd, usdc, tokens, pct } from "@/lib/format";
-import { PoolCard, PoolRow } from "./Pool";
-import { FillTape } from "./FillTape";
-import { EpochClock, DistributionLog, DistributionSummary } from "./Epochs";
-import { SectionHead, basisTextClass } from "./primitives";
+import { inRange } from "@/lib/bins";
+import { QUOTE, tokenMeta } from "@/lib/tokens";
+import { bigPct, feePct, pct, price as fmtPrice, signedUsd, usd, usdc } from "@/lib/format";
+import { BinChart, SectionHead, Sparkline, TokenAvatar, signClass } from "./primitives";
+import { PositionCard } from "./Position";
 import {
-  RadarIcon,
-  BasisIcon,
+  AlertIcon,
+  BinsIcon,
   BoltIcon,
-  SplitIcon,
-  ShieldIcon,
   ClockIcon,
-  PoolIcon,
-  LayersIcon,
+  ScaleIcon,
+  ShieldIcon,
+  TideIcon,
 } from "./icons";
 
-type Filter = "all" | "rich" | "cheap" | "acting";
-
-const FILTERS: { id: Filter; label: string }[] = [
-  { id: "all", label: "all pools" },
-  { id: "acting", label: "mm acting" },
-  { id: "rich", label: "rich" },
-  { id: "cheap", label: "cheap" },
-];
-
-export function Home({ onOpen }: { onOpen: (id: string) => void }) {
+export function Home({
+  onOpenPool,
+  onPositions,
+}: {
+  onOpenPool: (id: string) => void;
+  onPositions: () => void;
+}) {
   const { state } = useStore();
-  const { pools, live, epochs, lifetime, capital, session, user, now } = state;
-  const [filter, setFilter] = useState<Filter>("all");
+  const { pools, positions, now, user } = state;
 
-  const sorted = useMemo(
-    () => [...pools].sort((a, b) => Math.abs(poolBasis(b)) - Math.abs(poolBasis(a))),
-    [pools]
-  );
+  const open = positions.filter((p) => !p.closed);
 
-  const shown = useMemo(
-    () =>
-      sorted.filter((p) => {
-        const st = poolStateOf(p);
-        if (filter === "all") return true;
-        if (filter === "acting") return st !== "fair";
-        return st === filter;
-      }),
-    [sorted, filter]
-  );
+  const totals = useMemo(() => {
+    const tvl = pools.reduce((a, p) => a + p.tvl, 0);
+    const vol = pools.reduce((a, p) => a + p.volume24h, 0);
+    const fees = pools.reduce((a, p) => a + p.fees24h, 0);
+    let value = 0;
+    let netVsHold = 0;
+    let earning = 0;
+    for (const pos of open) {
+      const pool = pools.find((p) => p.id === pos.poolId);
+      if (!pool) continue;
+      const pnl = positionPnl(pos, pool.price);
+      value += pnl.currentValue;
+      netVsHold += pnl.netVsHold;
+      if (inRange(pos.bins, pool.price)) earning += 1;
+    }
+    return { tvl, vol, fees, value, netVsHold, earning };
+  }, [pools, open]);
 
-  const spotlight = sorted.slice(0, 3);
-
-  const stats = useMemo(() => {
-    const acting = pools.filter((p) => poolStateOf(p) !== "fair").length;
-    const tvl = pools.reduce((a, p) => a + poolTvl(p), 0);
-    const widest = sorted[0] ? poolBasis(sorted[0]) : 0;
-    const recent = epochs.slice(0, 8);
-    const avg = recent.length ? recent.reduce((a, e) => a + e.holders, 0) / recent.length : 0;
-    return { acting, tvl, widest, avg };
-  }, [pools, sorted, epochs]);
-
-  const marketLive = refIsLive(session);
+  const ranked = useMemo(() => [...pools].sort((a, b) => b.volume24h - a.volume24h), [pools]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 pb-12 sm:px-6">
-      {/* ── Hero ─────────────────────────────────────────────────────────── */}
-      <section className="grid-bg relative overflow-hidden rounded-2xl border border-edge px-5 py-8 sm:px-9 sm:py-11">
+      {/* Hero */}
+      <section className="grid-bg relative overflow-hidden rounded-2xl border border-edge px-5 py-9 sm:px-9 sm:py-12">
         <div
           aria-hidden
-          className="pointer-events-none absolute -left-32 -top-32 h-80 w-80 rounded-full"
-          style={{ background: "radial-gradient(circle, rgba(0,229,154,0.14), transparent 70%)" }}
+          className="pointer-events-none absolute -left-28 -top-28 h-80 w-80 rounded-full"
+          style={{ background: "radial-gradient(circle, rgba(168,85,247,0.20), transparent 70%)" }}
         />
         <div
           aria-hidden
-          className="pointer-events-none absolute -right-20 top-24 h-72 w-72 rounded-full"
-          style={{ background: "radial-gradient(circle, rgba(255,166,46,0.10), transparent 70%)" }}
+          className="pointer-events-none absolute -right-24 top-20 h-72 w-72 rounded-full"
+          style={{ background: "radial-gradient(circle, rgba(34,211,238,0.13), transparent 70%)" }}
         />
-        <div className="relative grid gap-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
+        <div className="relative grid gap-9 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
           <div>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/25 bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
-              <RadarIcon width={13} height={13} /> watching {count(pools.length)} pools · Robinhood Chain
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/25 bg-accent/10 px-3 py-1 text-xs font-medium text-accent-soft">
+              <TideIcon width={13} height={13} /> {pools.length} memecoin pools · Robinhood Chain
             </span>
             <h1 className="mt-4 text-4xl font-bold leading-[1.05] tracking-tight sm:text-[3.4rem]">
-              The market maker for{" "}
-              <span className="bg-gradient-to-r from-rich to-rich-hot bg-clip-text text-transparent">
-                mispriced
-              </span>{" "}
-              equities.
+              LP the memecoins{" "}
+              <span className="bg-gradient-to-r from-accent-soft to-quote bg-clip-text text-transparent">
+                without the guesswork
+              </span>
+              .
             </h1>
             <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted sm:text-base">
-              Tokenized stocks trade around the clock in thin pools. The stocks
-              they track do not. So the pools drift — sometimes a long way — from
-              what the shares are actually worth.{" "}
+              Concentrated liquidity earns real fees on the tokens that actually
+              trade — and quietly loses money if you pick the wrong range, drift
+              out of it, or never check what impermanent loss took.{" "}
               <span className="text-foreground">
-                When a pool runs far above the real price, mm sells into it.
-              </span>{" "}
-              Every fill is hedged at the reference, so the edge is booked on the
-              spot. The profit goes to holders every 15 minutes, on-chain.
+                tide is one tap to a position, and one number that tells you the
+                truth: whether you beat simply holding.
+              </span>
             </p>
 
             <div className="mt-6 flex flex-wrap items-center gap-4">
               <a
-                href="#board"
-                className="rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-black transition-shadow hover:shadow-[0_0_28px_rgba(0,229,154,0.45)]"
+                href="#pools"
+                className="rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-white transition-shadow hover:shadow-[0_0_28px_rgba(168,85,247,0.45)]"
               >
-                See the board
+                Browse pools
               </a>
               <a
-                href="#distributions"
+                href="#how"
                 className="rounded-lg border border-edge px-5 py-3 text-sm font-semibold text-foreground transition-colors hover:border-edge-strong"
               >
-                Every payout, logged
+                How it works
               </a>
             </div>
 
-            <div className="mt-7 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-edge pt-5 sm:grid-cols-4">
-              <Hero
-                label="pools off the mark"
-                value={count(stats.acting)}
-                tone={stats.acting > 0 ? "rich" : "muted"}
-                sub={`of ${count(pools.length)} watched`}
-              />
-              <Hero
-                label="widest basis"
-                value={bps(stats.widest)}
-                className={basisTextClass(stats.widest)}
-                sub="right now"
-              />
-              <Hero label="avg. per sweep" value={usdc(stats.avg)} tone="accent" sub="last 8 epochs" />
-              <Hero label="paid, all time" value={usd(lifetime.distributed)} tone="accent" sub={`${count(lifetime.epochs)} epochs`} />
+            <div className="mt-8 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-edge pt-5 sm:grid-cols-4">
+              <Hero label="pools" value={String(pools.length)} sub="all memecoin/USDC" />
+              <Hero label="depth" value={usd(totals.tvl)} sub="across the board" />
+              <Hero label="24h volume" value={usd(totals.vol)} sub="what pays the fees" />
+              <Hero label="24h fees" value={usd(totals.fees)} sub="paid to LPs" accent />
             </div>
           </div>
 
-          <EpochClock />
+          <HeroCard />
         </div>
       </section>
 
-      {/* ── Session note — the reason the whole thing works ───────────────── */}
-      <div
-        className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border px-4 py-3 text-xs"
-        style={{
-          borderColor: marketLive ? "var(--color-edge)" : "rgba(255,166,46,0.28)",
-          background: marketLive ? undefined : "rgba(255,166,46,0.06)",
-        }}
-      >
-        <span
-          className={`h-2 w-2 rounded-full ${marketLive ? "animate-pulse-dot bg-up" : "bg-rich"}`}
-          aria-hidden
-        />
-        <span className="font-semibold text-foreground">{SESSION_LABEL[session]}</span>
-        <span className="text-muted">
-          {marketLive
-            ? "The stock is printing, so the reference moves with it and real arbitrageurs compete for the same gaps. Bases stay tight and mm works for smaller clips."
-            : "The stock is shut and its last print is frozen. The pools keep trading anyway — with nothing to arbitrage against, the basis runs wide. These are mm's best hours."}
-        </span>
-      </div>
+      {/* Your positions, if any */}
+      {user.connected && open.length > 0 && (
+        <section className="mt-10">
+          <SectionHead
+            icon={<BinsIcon width={18} height={18} className="text-accent-soft" />}
+            title="Your positions"
+            tag={`${totals.earning}/${open.length} earning`}
+          >
+            The headline is the same one every card leads with: net of fees,
+            impermanent loss and costs, are you ahead of where you would be
+            holding the tokens?
+          </SectionHead>
+          <div className="mb-4 flex flex-wrap items-center gap-6 rounded-xl border border-edge bg-card p-4">
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-muted">Total value</p>
+              <p className="font-mono text-xl font-bold tnum">{usdc(totals.value)}</p>
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-muted">Net vs. holding</p>
+              <p className={`font-mono text-xl font-bold tnum ${signClass(totals.netVsHold)}`}>
+                {signedUsd(totals.netVsHold)}
+              </p>
+            </div>
+            <button
+              onClick={onPositions}
+              className="ml-auto rounded-lg border border-edge px-4 py-2 text-xs font-medium text-muted transition-colors hover:text-foreground"
+            >
+              See all positions
+            </button>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {open.slice(0, 3).map((pos) => {
+              const pool = pools.find((p) => p.id === pos.poolId)!;
+              return (
+                <PositionCard
+                  key={pos.id}
+                  position={pos}
+                  pool={pool}
+                  now={now}
+                  onOpen={() => onOpenPool(pos.poolId)}
+                />
+              );
+            })}
+          </div>
+        </section>
+      )}
 
-      {/* ── Spotlight ────────────────────────────────────────────────────── */}
-      <section className="mt-10">
+      {/* The board */}
+      <section id="pools" className="mt-12 scroll-mt-20">
         <SectionHead
-          icon={<BasisIcon width={18} height={18} className="text-rich" />}
-          title="Furthest from fair"
-          tag="live"
+          icon={<BinsIcon width={18} height={18} className="text-accent-soft" />}
+          title="Pools"
+          tag="by 24h volume"
         >
-          The three pools sitting furthest from the stock they track. mm sizes
-          each fade to walk the pool back toward the reference — stopping{" "}
-          {LEAVE_BPS} bps short, because the last basis points cost more in
-          slippage than they pay.
+          Volume is what pays you, so the board is ranked by it rather than by
+          headline yield. The fee column is what swaps are being charged right
+          now — it rises with volatility, which is when LPs need paying most.
         </SectionHead>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {spotlight.map((p) => (
-            <PoolCard key={p.id} pool={p} capital={capital} onOpen={() => onOpen(p.id)} />
+
+        <div className="overflow-x-auto rounded-xl border border-edge bg-card">
+          <table className="w-full min-w-[820px] text-sm">
+            <thead>
+              <tr className="border-b border-edge text-left text-[11px] uppercase tracking-wide text-muted">
+                <th className="py-2.5 pl-4 pr-3 font-medium">pool</th>
+                <th className="px-3 py-2.5 text-right font-medium">price</th>
+                <th className="px-3 py-2.5 text-right font-medium">24h</th>
+                <th className="hidden px-3 py-2.5 lg:table-cell" />
+                <th className="px-3 py-2.5 text-right font-medium">volume</th>
+                <th className="hidden px-3 py-2.5 text-right font-medium sm:table-cell">depth</th>
+                <th className="px-3 py-2.5 text-right font-medium">fee now</th>
+                <th className="px-3 py-2.5 text-right font-medium">24h fees / depth</th>
+                <th className="py-2.5 pl-3 pr-4 text-right font-medium">checks</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ranked.map((pool) => (
+                <PoolRow key={pool.id} pool={pool} onOpen={() => onOpenPool(pool.id)} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-muted">
+          The last column shows fees paid over the last 24 hours as a share of
+          pool depth — the honest version of APR. Annualising it would multiply
+          by 365 and produce a number nobody has ever been paid.
+        </p>
+      </section>
+
+      {/* Presets */}
+      <section className="mt-12">
+        <SectionHead
+          icon={<ScaleIcon width={18} height={18} className="text-accent-soft" />}
+          title="Four ways to provide"
+          tag="pick one, change it later"
+        >
+          Each is a real liquidity shape underneath. Every one of them has a
+          downside, and it is written on the card rather than in a docs page.
+        </SectionHead>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {PRESETS.map((p) => (
+            <div key={p.id} className="flex flex-col rounded-xl border border-edge bg-card p-5">
+              <h3 className="text-sm font-semibold">{p.label}</h3>
+              <p className="mt-0.5 text-xs text-accent-soft">{p.tagline}</p>
+              <p className="mt-3 flex-1 text-xs leading-relaxed text-muted">{p.body}</p>
+              <p className="mt-3 flex items-start gap-1.5 border-t border-edge pt-3 text-[11px] leading-relaxed text-outrange">
+                <AlertIcon width={12} height={12} className="mt-0.5 shrink-0" />
+                <span>{p.risk}</span>
+              </p>
+            </div>
           ))}
         </div>
       </section>
 
-      {/* ── The board ────────────────────────────────────────────────────── */}
-      <section id="board" className="mt-12 scroll-mt-20">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <SectionHead
-            icon={<PoolIcon width={18} height={18} className="text-accent" />}
-            title="The board"
-            tag={`${count(pools.length)} pools · ${usd(stats.tvl)} depth`}
-          >
-            Every pool where a tokenized equity trades, marked against the real
-            stock. Outside a ±{BAND_BPS} bps band mm has a trade; inside it there
-            is nothing worth paying gas for.
-          </SectionHead>
-          <div className="mb-4 flex gap-1 rounded-lg border border-edge bg-card p-1">
-            {FILTERS.map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => setFilter(f.id)}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                  filter === f.id ? "bg-white/[0.08] text-foreground" : "text-muted hover:text-foreground"
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="overflow-x-auto rounded-xl border border-edge bg-card">
-          <table className="w-full min-w-[680px] text-sm">
-            <thead>
-              <tr className="border-b border-edge text-left text-[11px] uppercase tracking-wide text-muted">
-                <th className="py-2.5 pl-4 pr-3 font-medium">pool</th>
-                <th className="px-3 py-2.5 text-right font-medium">pool price</th>
-                <th className="px-3 py-2.5 text-right font-medium">stock</th>
-                <th className="px-3 py-2.5 text-right font-medium">basis</th>
-                <th className="hidden px-3 py-2.5 font-medium md:table-cell">cheap · fair · rich</th>
-                <th className="hidden px-3 py-2.5 font-medium lg:table-cell">recent</th>
-                <th className="hidden px-3 py-2.5 text-right font-medium sm:table-cell">depth</th>
-                <th className="px-3 py-2.5 text-right font-medium">mm</th>
-                <th className="hidden py-2.5 pl-3 pr-4 text-right font-medium lg:table-cell">last fill</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((p) => (
-                <PoolRow key={p.id} pool={p} capital={capital} now={now} onOpen={() => onOpen(p.id)} />
-              ))}
-            </tbody>
-          </table>
-          {shown.length === 0 && (
-            <p className="px-4 py-8 text-center text-sm text-muted">
-              No pool is {filter === "acting" ? "outside the band" : filter} right now.
-            </p>
-          )}
-        </div>
-      </section>
-
-      {/* ── Fills ────────────────────────────────────────────────────────── */}
-      <section id="fills" className="mt-12 scroll-mt-20">
-        <SectionHead
-          icon={<BoltIcon width={18} height={18} className="text-accent" />}
-          title="Fills"
-          tag="live tape"
-        >
-          Each row is one trade against one pool. mm sold above the stock, or
-          bought below it, and the edge is realized at the fill — the hedge is
-          on the other side, so nothing here is waiting for a price to come
-          back.
-        </SectionHead>
-        <FillTape limit={12} />
-        <p className="mt-2 text-[11px] text-muted">
-          This epoch: {count(live.fills)} fills · {usd(live.volume)} traded ·{" "}
-          <span className="text-accent">{usdc(live.net)}</span> realized.
-        </p>
-      </section>
-
-      {/* ── Distributions ────────────────────────────────────────────────── */}
-      <section id="distributions" className="mt-12 scroll-mt-20">
-        <SectionHead
-          icon={<SplitIcon width={18} height={18} className="text-accent" />}
-          title="Distributions"
-          tag="every 15 minutes"
-        >
-          At every quarter hour the epoch closes, the realized profit is swept,
-          and it is paid to mm holders pro rata. Boundaries are wall-clock, so
-          everyone is on the same schedule whether or not they are watching.
-        </SectionHead>
-        <DistributionSummary />
-        <div className="mt-4">
-          <DistributionLog limit={10} />
-        </div>
-        <p className="mt-2 text-[11px] text-muted">
-          Trailing figures describe what the book has already paid. They are not
-          a forecast — when the pools track the stocks closely, there is nothing
-          to collect and an epoch pays little or nothing.
-        </p>
-      </section>
-
-      {/* ── Holders ──────────────────────────────────────────────────────── */}
-      <section className="mt-12">
-        <SectionHead
-          icon={<LayersIcon width={18} height={18} className="text-accent" />}
-          title="Holding mm"
-          tag={`${tokens(SUPPLY)} fixed supply`}
-        >
-          mm is a claim on the profit stream, not on the vault. Supply is fixed;
-          your share of every sweep is exactly your share of supply. There is
-          nothing to stake, lock, or vest.
-        </SectionHead>
-        <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <Panel label="supply" value={tokens(SUPPLY)} sub="fixed, no emissions" />
-            <Panel label="working capital" value={usd(capital)} sub="the book mm trades" />
-            <Panel label="cadence" value="15 min" sub="96 sweeps a day" />
-            <Panel label="holder cut" value="90%" sub="10% to keepers" />
-          </div>
-          <div className="rounded-xl border border-edge bg-card p-5">
-            {user.connected ? (
-              <>
-                <p className="text-[11px] uppercase tracking-wide text-muted">your position</p>
-                <p className="mt-1 font-mono text-2xl font-bold tnum">
-                  {tokens(user.mm)} <span className="text-base text-muted">mm</span>
-                </p>
-                <p className="text-xs text-muted">
-                  {pct((user.mm / SUPPLY) * 100, false, 3)} of supply
-                </p>
-                <div className="mt-4 grid grid-cols-2 gap-4 border-t border-edge pt-3">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-wide text-muted">claimable</p>
-                    <p className="font-mono text-lg font-semibold text-accent tnum">
-                      {usdc(user.claimable)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] uppercase tracking-wide text-muted">claimed</p>
-                    <p className="font-mono text-lg font-semibold tnum">{usdc(user.paid)}</p>
-                  </div>
-                </div>
-                <p className="mt-3 text-[11px] text-muted">
-                  At the last eight sweeps, a position this size earned{" "}
-                  <span className="font-mono text-foreground">
-                    {usdc(shareOf(stats.avg, user.mm))}
-                  </span>{" "}
-                  per epoch.
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="text-sm font-semibold">Not connected</p>
-                <p className="mt-2 text-xs leading-relaxed text-muted">
-                  Connect a wallet to watch your cut of the open epoch accrue and
-                  to claim what has already been swept. In this demo, connecting
-                  mints a mock holder — no keys, no funds, no chain.
-                </p>
-                <p className="mt-4 rounded-lg bg-white/[0.03] p-3 font-mono text-[11px] text-muted">
-                  10,000 mm earned {usdc(shareOf(stats.avg, 10_000))} in the
-                  average of the last eight sweeps.
-                </p>
-              </>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* ── How it works ─────────────────────────────────────────────────── */}
+      {/* How it works */}
       <section id="how" className="mt-14 scroll-mt-20">
-        <SectionHead icon={<ClockIcon width={18} height={18} className="text-accent" />} title="How it works">
-          Three steps, repeated ninety-six times a day.
+        <SectionHead
+          icon={<ClockIcon width={18} height={18} className="text-accent-soft" />}
+          title="How it works"
+        >
+          Binned liquidity, explained once.
         </SectionHead>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           {[
             {
               n: "01",
-              Icon: RadarIcon,
-              title: "Watch every pool",
-              body: `mm indexes every pool where a tokenized equity trades and marks each one against the real stock print. The distance between the two is the basis, quoted in basis points. Inside ±${BAND_BPS} bps there is nothing to do.`,
+              Icon: BinsIcon,
+              title: "A pool is a ladder of bins",
+              body: "Each bin is a single price. Trades inside one move the price not at all — the pool only steps when a bin is emptied. Below the current price a bin holds USDC; above it, the token. That is why your position changes composition as price moves through it.",
             },
             {
               n: "02",
-              Icon: BasisIcon,
-              title: "Sell into what is rich",
-              body: "When a pool runs far above the stock, mm sells the token into it and hedges the same exposure at the reference. It is not a bet on reversion: mm is selling something for more than it costs to source, and the difference is booked at the fill.",
+              Icon: TideIcon,
+              title: "You only earn in range",
+              body: "Fees go to whoever has liquidity in the bin being traded, and nobody else. A tight range owns more of that bin and earns more — until price leaves, at which point it earns exactly nothing. That trade-off is the entire game.",
             },
             {
               n: "03",
-              Icon: SplitIcon,
-              title: "Pay it out, every 15 minutes",
-              body: "At the quarter hour the epoch closes. Realized profit, net of the pool fees and gas it took to earn, is swept on-chain and split across mm holders in proportion to what they hold.",
+              Icon: BoltIcon,
+              title: "Fees rise with volatility",
+              body: "The pool charges a base fee plus a surcharge that climbs as it steps between bins. Volatility is when impermanent loss is worst, so it is also when swaps pay most — a flat fee would get picked off on exactly the candles that hurt.",
             },
           ].map(({ n, Icon, title, body }) => (
             <div key={n} className="rounded-xl border border-edge bg-card p-5">
               <div className="flex items-center justify-between">
-                <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-edge bg-accent/10 text-accent">
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-edge bg-accent/10 text-accent-soft">
                   <Icon width={20} height={20} />
                 </span>
                 <span className="font-mono text-2xl font-bold text-white/10">{n}</span>
@@ -387,30 +275,69 @@ export function Home({ onOpen }: { onOpen: (id: string) => void }) {
           ))}
         </div>
 
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <div className="flex items-start gap-3 rounded-xl border border-rich/20 bg-rich/[0.05] p-5">
-            <ClockIcon width={20} height={20} className="mt-0.5 shrink-0 text-rich" />
-            <p className="text-sm leading-relaxed text-muted">
-              <span className="font-semibold text-foreground">
-                The best hours are the ones the market is shut.
-              </span>{" "}
-              A tokenized stock trades 24/7; the share it tracks trades 09:30 to
-              16:00, five days a week. Overnight and at weekends the reference is
-              frozen and there is no underlying to arbitrage against — so the
-              pools wander, and they wander furthest exactly when Asia and the
-              Gulf are awake and the US is asleep.
+        <div className="mt-4 flex items-start gap-3 rounded-xl border border-down/20 bg-down/[0.05] p-5">
+          <AlertIcon width={20} height={20} className="mt-0.5 shrink-0 text-down" />
+          <div>
+            <p className="text-sm font-semibold">
+              Providing liquidity to memecoins loses money more often than it makes it.
+            </p>
+            <p className="mt-1.5 text-sm leading-relaxed text-muted">
+              The fees are genuinely large, and so is the impermanent loss they
+              are compensating for. A position can collect fees every hour, show
+              a green total because the token went up, and still have been worse
+              than doing nothing. tide will not hide that from you — it is the
+              number on the front of every card — but it cannot make it untrue.
             </p>
           </div>
-          <div className="flex items-start gap-3 rounded-xl border border-accent/20 bg-accent/[0.05] p-5">
-            <ShieldIcon width={20} height={20} className="mt-0.5 shrink-0 text-accent" />
-            <p className="text-sm leading-relaxed text-muted">
-              <span className="font-semibold text-foreground">
-                Every fade is hedged, and sized to the pool.
-              </span>{" "}
-              Size comes from the pool&apos;s own curve — the exact quantity that
-              walks it back toward the reference — capped by a per-clip limit, so
-              no single dislocation can take the book. mm carries basis risk, not
-              a directional view on any stock.
+        </div>
+      </section>
+
+      {/* On-chain */}
+      <section id="onchain" className="mt-14 scroll-mt-20">
+        <SectionHead
+          icon={<ShieldIcon width={18} height={18} className="text-accent-soft" />}
+          title="What runs on-chain"
+          tag="no oracle, no custodian, no keeper"
+        >
+          Worth being precise about, because most yield products are not.
+        </SectionHead>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-xl border border-inrange/20 bg-inrange/[0.04] p-5">
+            <h3 className="text-sm font-semibold text-inrange">Enforced by contract</h3>
+            <ul className="mt-3 space-y-2 text-xs leading-relaxed text-muted">
+              {[
+                "Bins, swaps, fee accrual and the variable fee — all pool state, all on-chain.",
+                "Your position, its range and its shape, held as a token you own.",
+                "The rebalance rule you agreed at deposit: when to recenter, how far, max slippage. Committed on-chain, so it cannot be changed underneath you.",
+                "Recentering runs as a permissionless crank with a bounty — anyone can call it, the contract checks the rule was satisfied. There is no privileged keeper and nobody who can move your funds.",
+                "Withdrawal, always, without asking anyone.",
+              ].map((t) => (
+                <li key={t} className="flex gap-2">
+                  <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-inrange" />
+                  {t}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="rounded-xl border border-edge bg-card p-5">
+            <h3 className="text-sm font-semibold">Off-chain, and only this</h3>
+            <ul className="mt-3 space-y-2 text-xs leading-relaxed text-muted">
+              {[
+                "The indexer behind the charts and history. It reads public events — anyone can rebuild it and check the numbers.",
+                "This interface. It can be pinned to IPFS; the contracts do not depend on it existing.",
+              ].map((t) => (
+                <li key={t} className="flex gap-2">
+                  <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted" />
+                  {t}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-4 border-t border-edge pt-3 text-xs leading-relaxed text-muted">
+              There is no price oracle, because the pool is the price. No
+              custodian, because the tokens are native rather than a claim on
+              someone. No hedge leg, so no broker. Those three are what usually
+              force a DeFi product to trust somebody, and none of them appear
+              here.
             </p>
           </div>
         </div>
@@ -419,36 +346,136 @@ export function Home({ onOpen }: { onOpen: (id: string) => void }) {
   );
 }
 
-function Hero({
-  label,
-  value,
-  sub,
-  tone,
-  className,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-  tone?: "accent" | "rich" | "muted";
-  className?: string;
-}) {
-  const cls =
-    className ??
-    (tone === "accent" ? "text-accent" : tone === "muted" ? "text-muted" : "text-rich");
+function PoolRow({ pool, onOpen }: { pool: Pool; onOpen: () => void }) {
+  const chg = (pool.price / pool.price24hAgo - 1) * 100;
+  const y = poolYield(pool);
+  const flags = safetyFlags(pool.safety);
+  const tint = tokenMeta(pool.symbol).color;
+
   return (
-    <div>
-      <p className="text-[11px] uppercase tracking-wide text-muted">{label}</p>
-      <p className={`font-mono text-xl font-bold tnum ${cls}`}>{value}</p>
-      <p className="text-[11px] text-muted">{sub}</p>
+    <tr
+      onClick={onOpen}
+      tabIndex={0}
+      role="button"
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      className="cursor-pointer border-b border-edge/60 transition-colors last:border-0 hover:bg-white/[0.025]"
+    >
+      <td className="whitespace-nowrap py-2.5 pl-4 pr-3">
+        <div className="flex items-center gap-2.5">
+          <TokenAvatar symbol={pool.symbol} size={30} />
+          <div className="leading-tight">
+            <p className="text-sm font-semibold">
+              {pool.symbol}
+              <span className="text-muted">/{QUOTE}</span>
+            </p>
+            <p className="text-[11px] text-muted">{pool.binStep} bps bins</p>
+          </div>
+        </div>
+      </td>
+      <td className="px-3 py-2.5 text-right font-mono text-sm tnum">{fmtPrice(pool.price)}</td>
+      <td className={`px-3 py-2.5 text-right font-mono text-sm tnum ${chg >= 0 ? "text-up" : "text-down"}`}>
+        {pct(chg, true, 1)}
+      </td>
+      <td className="hidden px-3 py-2.5 lg:table-cell">
+        <Sparkline values={pool.history} width={78} height={24} color={tint} />
+      </td>
+      <td className="px-3 py-2.5 text-right font-mono text-sm tnum">{usd(pool.volume24h)}</td>
+      <td className="hidden px-3 py-2.5 text-right font-mono text-sm text-muted tnum sm:table-cell">
+        {usd(pool.tvl)}
+      </td>
+      <td className="px-3 py-2.5 text-right font-mono text-sm text-accent-soft tnum">
+        {feePct(currentFeeBps(pool))}
+      </td>
+      <td className="px-3 py-2.5 text-right">
+        <span className="font-mono text-sm font-semibold tnum">{y.period.toFixed(2)}%</span>
+        <span className="ml-1 hidden text-[10px] text-muted xl:inline">24h</span>
+      </td>
+      <td className="whitespace-nowrap py-2.5 pl-3 pr-4 text-right">
+        {flags.failed === 0 ? (
+          <span className="font-mono text-[11px] text-inrange">{flags.total}/{flags.total}</span>
+        ) : (
+          <span
+            className="font-mono text-[11px] text-down"
+            title={`${flags.failed} on-chain check${flags.failed === 1 ? "" : "s"} fail`}
+          >
+            {flags.total - flags.failed}/{flags.total}
+          </span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+/** The hero's live illustration — a real pool, drawn from the live sim. */
+function HeroCard() {
+  const { state } = useStore();
+  const pool = useMemo(
+    () => [...state.pools].sort((a, b) => b.volume24h - a.volume24h)[0],
+    [state.pools]
+  );
+  if (!pool) return null;
+  const y = poolYield(pool);
+  return (
+    <div className="rounded-2xl border border-edge bg-card/70 p-5 backdrop-blur">
+      <div className="flex items-center gap-3">
+        <TokenAvatar symbol={pool.symbol} size={36} />
+        <div className="flex-1">
+          <p className="text-sm font-semibold">
+            {pool.symbol}
+            <span className="text-muted">/{QUOTE}</span>
+          </p>
+          <p className="text-[11px] text-muted">deepest pool on the board</p>
+        </div>
+        <p className="font-mono text-lg font-semibold tnum">{fmtPrice(pool.price)}</p>
+      </div>
+      <div className="mt-4">
+        <BinChart pool={pool} height={104} span={30} />
+      </div>
+      <div className="mt-4 grid grid-cols-3 gap-3 border-t border-edge pt-3">
+        <div>
+          <p className="text-[11px] text-muted">fee now</p>
+          <p className="font-mono text-sm font-semibold text-accent-soft tnum">
+            {feePct(currentFeeBps(pool))}
+          </p>
+        </div>
+        <div>
+          <p className="text-[11px] text-muted">24h fees / depth</p>
+          <p className="font-mono text-sm font-semibold tnum">{y.period.toFixed(2)}%</p>
+        </div>
+        <div>
+          <p className="text-[11px] text-muted">annualised</p>
+          <p className="font-mono text-sm font-semibold text-outrange tnum">{bigPct(y.apr)}</p>
+        </div>
+      </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-muted">
+        Both are the same number. One of them is honest.
+      </p>
     </div>
   );
 }
 
-function Panel({ label, value, sub }: { label: string; value: string; sub: string }) {
+function Hero({
+  label,
+  value,
+  sub,
+  accent,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  accent?: boolean;
+}) {
   return (
-    <div className="rounded-xl border border-edge bg-card p-4">
+    <div>
       <p className="text-[11px] uppercase tracking-wide text-muted">{label}</p>
-      <p className="mt-1 font-mono text-xl font-semibold tnum">{value}</p>
+      <p className={`font-mono text-xl font-bold tnum ${accent ? "text-accent-soft" : ""}`}>
+        {value}
+      </p>
       <p className="text-[11px] text-muted">{sub}</p>
     </div>
   );

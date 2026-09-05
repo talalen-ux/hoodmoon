@@ -2,38 +2,40 @@
 
 @theme {
   /*
-   * mm reads as an instrument panel: near-black ground, one mint accent for
-   * the operator's own numbers, and a warm/cool pair for the two ways a pool
-   * can be wrong. Rich (amber → red) is where the money is, so it is the only
-   * thing allowed to shout.
+   * tide reads as a calm surface over a violent market. Deep indigo ground so
+   * the two liquidity colours can carry meaning without shouting: cyan is
+   * USDC sitting below the price, violet is the token sitting above it. Green
+   * means earning, amber means idle. Nothing else is allowed to be bright.
    */
-  --color-bg: #06090c;
-  --color-surface: #0a0e12;
-  --color-card: #0f1419;
-  --color-elevated: #151b22;
-  --color-edge: rgba(120, 200, 190, 0.09);
-  --color-edge-strong: rgba(120, 200, 190, 0.2);
+  --color-bg: #0a0812;
+  --color-surface: #0f0c1a;
+  --color-card: #141021;
+  --color-elevated: #1b1630;
+  --color-edge: rgba(167, 139, 250, 0.11);
+  --color-edge-strong: rgba(167, 139, 250, 0.24);
 
-  --color-accent: #00e59a;
-  --color-accent-dim: #00b87c;
+  --color-accent: #a855f7;
+  --color-accent-dim: #7c3aed;
+  --color-accent-soft: #c4b5fd;
 
-  --color-rich: #ffa62e;
-  --color-rich-hot: #ff5f56;
-  --color-cheap: #4da3ff;
-  --color-fair: #7d8f9b;
+  /* The two sides of a bin. */
+  --color-quote: #22d3ee;
+  --color-base: #a855f7;
 
-  --color-up: #21d97e;
-  --color-down: #ff5f56;
-  --color-foreground: #e8f0f3;
-  --color-muted: #7d8f9b;
+  --color-inrange: #34d399;
+  --color-outrange: #fbbf24;
+
+  --color-up: #34d399;
+  --color-down: #fb7185;
+  --color-foreground: #eeecf7;
+  --color-muted: #8b86a3;
 
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
 
-  --animate-marquee: marquee 52s linear infinite;
-  --animate-pulse-dot: pulse-dot 1.6s ease-in-out infinite;
-  --animate-sweep: sweep 2.4s ease-in-out infinite;
-  --animate-flash: flash 1.1s ease-out 1;
+  --animate-marquee: marquee 54s linear infinite;
+  --animate-pulse-dot: pulse-dot 1.7s ease-in-out infinite;
+  --animate-rise: rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) 1;
 
   @keyframes marquee {
     from { transform: translateX(0); }
@@ -43,13 +45,9 @@
     0%, 100% { opacity: 1; transform: scale(1); }
     50% { opacity: 0.35; transform: scale(0.82); }
   }
-  @keyframes sweep {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(320%); }
-  }
-  @keyframes flash {
-    0% { background-color: rgba(0, 229, 154, 0.16); }
-    100% { background-color: transparent; }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 }
 
@@ -59,9 +57,7 @@ html {
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .animate-marquee,
-  .animate-sweep,
-  .animate-flash { animation: none !important; }
+  .animate-marquee, .animate-rise { animation: none !important; }
 }
 
 body {
@@ -72,26 +68,27 @@ body {
   overflow-x: hidden;
 }
 
-::selection { background-color: rgba(0, 229, 154, 0.3); color: #fff; }
+::selection { background-color: rgba(168, 85, 247, 0.35); color: #fff; }
 
-* { scrollbar-width: thin; scrollbar-color: rgba(120, 200, 190, 0.18) transparent; }
+* { scrollbar-width: thin; scrollbar-color: rgba(167, 139, 250, 0.2) transparent; }
 
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
-  border-radius: 6px;
+  border-radius: 8px;
 }
 
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* Every number that can change without the layout moving. */
+/* Every changing number, so nothing reflows on tick. */
 .tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
 
-/* Faint grid behind the hero — a trading screen, not a marketing page. */
+input[type="range"] { accent-color: var(--color-accent); }
+
 .grid-bg {
   background-image:
-    linear-gradient(rgba(120, 200, 190, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(120, 200, 190, 0.045) 1px, transparent 1px);
-  background-size: 56px 56px;
+    linear-gradient(rgba(167, 139, 250, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(167, 139, 250, 0.05) 1px, transparent 1px);
+  background-size: 52px 52px;
 }
